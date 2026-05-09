@@ -150,6 +150,74 @@ describe("runSimulations — success rate", () => {
   });
 });
 
+// ─── Roth conversion summary ─────────────────────────────────────────────────
+
+describe("runSimulations — rothConversionSummary", () => {
+  it("includes a rothConversionSummary on every result", () => {
+    const results = runSimulations(makeState(), { numSimulations: 30, startYear: 2026, baseSeed: 7 });
+    const s = results[0].rothConversionSummary;
+    expect(s).toBeDefined();
+    expect(typeof s.totalConverted).toBe("number");
+    expect(typeof s.estimatedTaxSavings).toBe("number");
+    expect(typeof s.narrativeSummary).toBe("string");
+    expect(s.narrativeSummary.length).toBeGreaterThan(0);
+  });
+
+  it("optimizer ON (default) produces non-zero conversions for a high-trad-balance family", () => {
+    // Default scenario has optimizer enabled. Family has $1.4M traditional;
+    // both retire at 60; RMDs at 73 → 13-year window. Should hit some conversions.
+    const results = runSimulations(makeState(), { numSimulations: 30, startYear: 2026, baseSeed: 7 });
+    const s = results[0].rothConversionSummary;
+    expect(s.totalConverted).toBeGreaterThan(0);
+    expect(s.conversionWindowStart).not.toBeNull();
+    expect(s.conversionWindowEnd).not.toBeNull();
+  });
+
+  it("optimizer OFF on the scenario disables conversions and explains in narrative", () => {
+    const state = makeState({
+      scenarios: [
+        { id: "no-roth", label: "No Conversions", color: "#888", enableRothOptimizer: false },
+      ],
+    });
+    const results = runSimulations(state, { numSimulations: 30, startYear: 2026, baseSeed: 7 });
+    const s = results[0].rothConversionSummary;
+    expect(s.totalConverted).toBe(0);
+    expect(s.conversionWindowStart).toBeNull();
+    expect(s.narrativeSummary).toMatch(/disabled/i);
+  });
+
+  it("with no traditional balances, summary surfaces that fact", () => {
+    const state = makeState({
+      accounts: [
+        { id: "cash1", owner: "joint", type: "cash", label: "Cash", currentBalance: 100_000, annualContribution: 0 },
+        { id: "brok1", owner: "joint", type: "brokerage", label: "Brokerage", currentBalance: 1_500_000, annualContribution: 0 },
+        { id: "roth1", owner: "spouse1", type: "roth_ira", label: "Roth", currentBalance: 200_000, annualContribution: 0 },
+      ],
+    });
+    const results = runSimulations(state, { numSimulations: 20, startYear: 2026, baseSeed: 7 });
+    const s = results[0].rothConversionSummary;
+    expect(s.totalConverted).toBe(0);
+    expect(s.narrativeSummary).toMatch(/no traditional/i);
+  });
+
+  it("annualProjections rows expose roth conversion fields", () => {
+    const results = runSimulations(makeState(), { numSimulations: 20, startYear: 2026, baseSeed: 7 });
+    const proj = results[0].annualProjections;
+    // Every row must have the new spec-04 §3.4 fields populated (even if zero).
+    for (const p of proj) {
+      expect(typeof p.rothConversionAmount).toBe("number");
+      expect(typeof p.rmdAmount).toBe("number");
+      expect(typeof p.traditionalBalanceStart).toBe("number");
+      expect(typeof p.marginalRate).toBe("number");
+      expect(typeof p.irmaaWarning).toBe("boolean");
+    }
+    // At least one post-retirement year should carry a rationale string when
+    // the optimizer is on.
+    const hasRationale = proj.some((p) => typeof p.conversionRationale === "string" && p.conversionRationale.length > 0);
+    expect(hasRationale).toBe(true);
+  });
+});
+
 // ─── Determinism & seeding ───────────────────────────────────────────────────
 
 describe("runSimulations — determinism", () => {

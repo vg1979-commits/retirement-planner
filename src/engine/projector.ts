@@ -6,10 +6,11 @@ import type {
   HouseholdProfile,
   IncomeStream,
   InvestmentAssumptions,
+  RothConversionTargetBracket,
   Scenario,
   AssetAllocation,
 } from "../types";
-import { calculateTax } from "./taxEngine";
+import { calculateTax, optimizeRothConversion } from "./taxEngine";
 import {
   executeWithdrawals,
   type AccountBalance,
@@ -45,6 +46,14 @@ export interface ProjectorInput {
   scenario?: Scenario;
   run: SimulationRun;
   startYear: number; // first projection year (typically currentYear)
+
+  /** Override Roth optimizer settings — used when running the no-conversion baseline
+   *  for the savings comparison. If omitted, falls back to the scenario's settings
+   *  (default: optimizer ON, target 22%). */
+  rothOptimizerOverride?: {
+    enabled: boolean;
+    targetBracket?: RothConversionTargetBracket;
+  };
 }
 
 export interface ProjectorOutput {
@@ -52,6 +61,11 @@ export interface ProjectorOutput {
   yearlyEndBalances: number[]; // for percentile extraction
   depleted: boolean;
   finalBalance: number;
+  /** Sum of federalTax across all annualProjections — used to compare with-vs-without conversions. */
+  lifetimeFederalTax: number;
+  /** Traditional account balance at age 73 (RMD start). Used for the RMD tax bomb indicator
+   *  in the Roth Planner summary bar. */
+  traditionalBalanceAtRMDAge: number;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -336,6 +350,17 @@ export function projectScenario(input: ProjectorInput): ProjectorOutput {
     input.scenario?.allocationOverride
   );
 
+  // Resolve Roth optimizer settings: explicit override (used by the no-conversion baseline pass)
+  // beats scenario settings, which fall back to the spec defaults (ON, 22%).
+  const rothOptimizerEnabled =
+    input.rothOptimizerOverride?.enabled ??
+    input.scenario?.enableRothOptimizer ??
+    true;
+  const rothTargetBracket: RothConversionTargetBracket =
+    input.rothOptimizerOverride?.targetBracket ??
+    input.scenario?.rothConversionTargetBracket ??
+    "22pct";
+
   // Initialize balances from accounts
   const balances: AccountBalance[] = input.accounts.map((a) => ({
     accountId: a.id,
@@ -354,6 +379,8 @@ export function projectScenario(input: ProjectorInput): ProjectorOutput {
   const endYear = olderSpouseBirth + input.household.planningHorizon.endAge;
 
   let depleted = false;
+  let lifetimeFederalTax = 0;
+  let traditionalBalanceAtRMDAge = 0;
 
   // Identify older spouse once (used for RMD age calculation each year)
   const olderSpouse =
@@ -402,16 +429,22 @@ export function projectScenario(input: ProjectorInput): ProjectorOutput {
       totalExpenses + contribs.totalContributions - income.ordinaryIncome
     );
 
+    // Snapshot the start-of-year traditional balance for the Roth Planner table.
+    const traditionalBalanceStart = balances
+      .filter((b) => b.type === "traditional_401k" || b.type === "traditional_ira" || b.type === "deferred_comp")
+      .reduce((s, b) => s + b.balance, 0);
+
     const withdrawalBreakdown: { accountId: string; amount: number }[] = [];
     let totalWithdrawn = 0;
     let excessRmdTotal = 0;
+    let rmdAmountThisYear = 0; // mandatory RMD income for tax / optimizer purposes
 
     // Helper: run the withdrawal engine against the live balances array.
     function runWithdrawals(need: number, currentIncome: number): void {
-      if (need <= 0) return;
+      if (need <= 0 && (!bothRetired || age(olderSpouse, year) < 73)) return;
       const result = executeWithdrawals({
         accounts: balances,
-        amountNeeded: need,
+        amountNeeded: Math.max(0, need),
         olderSpouseAge: age(olderSpouse, year),
         bothRetired,
         currentOrdinaryIncome: currentIncome,
@@ -422,6 +455,8 @@ export function projectScenario(input: ProjectorInput): ProjectorOutput {
       withdrawalBreakdown.push(...result.breakdown);
       totalWithdrawn += result.totalWithdrawn;
       excessRmdTotal += result.excessRmdReinvested;
+      // Sum up RMD amounts from this call (used for optimizer headroom + tax)
+      for (const r of result.rmds) rmdAmountThisYear += r.rmdAmount;
       for (let i = 0; i < balances.length; i++) {
         balances[i].balance = result.updatedBalances[i].balance;
       }
@@ -444,12 +479,72 @@ export function projectScenario(input: ProjectorInput): ProjectorOutput {
         withdrawalLTCG += w.amount;
       }
     }
+    // Excess RMDs (beyond current need) also count as ordinary income — they
+    // were forced out of traditional accounts even though we didn't spend them.
+    withdrawalOrdinary += excessRmdTotal;
 
-    // 6. Tax — now computed on the complete income picture including withdrawals.
-    //    This is the fix: previously calculateTax() only saw W2/investment income
-    //    and returned zero for post-retirement years where all cash came from the
-    //    portfolio.
-    const taxableOrdinary = baseOrdinary + withdrawalOrdinary;
+    // 5b. Roth conversion (Spec 03 §6 + §6.5).
+    //     Run only when both spouses are retired (we've already conservatively
+    //     gated on that inside the optimizer too). The optimizer is told the
+    //     full ordinary-income picture so it sizes the conversion correctly.
+    let rothConversionAmount = 0;
+    let rothConversionTaxCost = 0;
+    let conversionRationale: string | undefined;
+    let irmaaWarning = false;
+
+    if (rothOptimizerEnabled && bothRetired) {
+      const traditionalBalanceNow = balances
+        .filter((b) => b.type === "traditional_401k" || b.type === "traditional_ira")
+        .reduce((s, b) => s + b.balance, 0);
+
+      // Note: we pass rmdIncome = rmdAmountThisYear so the optimizer's headroom
+      // calc respects mandatory income post-73.
+      const optimizerOrdinary = baseOrdinary + withdrawalOrdinary - rmdAmountThisYear;
+      const conv = optimizeRothConversion({
+        year,
+        inflationRate: assumptions.inflationRate,
+        ordinaryIncomeBeforeConversion: optimizerOrdinary,
+        longTermCapitalGains: income.ltcg + withdrawalLTCG,
+        traditionalBalance: traditionalBalanceNow,
+        targetBracket: rothTargetBracket,
+        bothRetired,
+        olderSpouseAge: age(olderSpouse, year),
+        rmdIncome: rmdAmountThisYear,
+      });
+
+      rothConversionAmount = conv.conversionAmount;
+      rothConversionTaxCost = conv.taxCost;
+      conversionRationale = conv.rationale;
+      irmaaWarning = conv.irmaaWarning;
+
+      if (rothConversionAmount > 0) {
+        // Move money from traditional → roth. Drain pro-rata across traditional accounts.
+        let remaining = rothConversionAmount;
+        for (const acct of balances) {
+          if (remaining <= 0) break;
+          if (acct.type !== "traditional_401k" && acct.type !== "traditional_ira") continue;
+          const drawn = Math.min(acct.balance, remaining);
+          acct.balance -= drawn;
+          remaining -= drawn;
+        }
+        // Park converted dollars in the first roth account if one exists; otherwise create
+        // a synthetic line by adding to the first roth_ira-type balance entry. If the user
+        // has no Roth account at all, the conversion still counts as taxable income but
+        // there's nowhere to put the money — fall back to brokerage so the cash isn't lost.
+        const rothTarget =
+          balances.find((b) => b.type === "roth_ira") ??
+          balances.find((b) => b.type === "roth_401k");
+        if (rothTarget) {
+          rothTarget.balance += rothConversionAmount;
+        } else {
+          applySurplus(balances, rothConversionAmount);
+        }
+      }
+    }
+
+    // 6. Tax — now computed on the complete income picture including withdrawals
+    //    and any Roth conversion this year.
+    const taxableOrdinary = baseOrdinary + withdrawalOrdinary + rothConversionAmount;
     const taxableLTCG = income.ltcg + withdrawalLTCG;
     const taxSnapshot = calculateTax({
       year,
@@ -458,6 +553,8 @@ export function projectScenario(input: ProjectorInput): ProjectorOutput {
       longTermCapitalGains: taxableLTCG,
       qualifiedDividends: income.qualifiedDividends,
       netInvestmentIncome: income.netInvestmentIncome + withdrawalLTCG,
+      rothConversionAmount: rothConversionAmount || undefined,
+      conversionRationale,
     });
 
     // 7. Net cash flow check.
@@ -467,6 +564,11 @@ export function projectScenario(input: ProjectorInput): ProjectorOutput {
     //    Cash in:  income.ordinaryIncome  (W2 + interest, received as cash)
     //            + totalWithdrawn         (cash from portfolio accounts)
     //    Cash out: taxes + contributions + expenses
+    //
+    //    Roth conversions don't move cash in/out of the household — they shift
+    //    money between portfolio accounts — so they don't appear in netFlow.
+    //    The tax cost of the conversion IS in taxSnapshot.totalFederalTax,
+    //    however, so it correctly increases the cash deficit.
     const netFlow =
       income.ordinaryIncome +
       totalWithdrawn -
@@ -503,6 +605,7 @@ export function projectScenario(input: ProjectorInput): ProjectorOutput {
       totalIncome: earnedIncome + investmentIncome,
       federalTax: taxSnapshot.totalFederalTax,
       effectiveTaxRate: taxSnapshot.effectiveRate,
+      marginalRate: taxSnapshot.marginalRate,
       totalExpenses,
       portfolioStartBalance: portfolioStart,
       contributions: contribs.totalContributions,
@@ -510,9 +613,23 @@ export function projectScenario(input: ProjectorInput): ProjectorOutput {
       investmentGains,
       portfolioEndBalance: portfolioEnd,
       withdrawalBreakdown,
+      traditionalBalanceStart,
+      rmdAmount: rmdAmountThisYear,
+      rothConversionAmount,
+      rothConversionTaxCost,
+      conversionRationale,
+      irmaaWarning,
     });
 
     yearlyEndBalances.push(portfolioEnd);
+    lifetimeFederalTax += taxSnapshot.totalFederalTax;
+
+    // Capture the traditional balance the first year the older spouse hits RMD age.
+    // Used by the Roth Planner summary's "RMD tax bomb" indicator on the no-conversion
+    // baseline pass.
+    if (age(olderSpouse, year) === 73 && traditionalBalanceAtRMDAge === 0) {
+      traditionalBalanceAtRMDAge = traditionalBalanceStart;
+    }
 
     // Early exit if fully depleted (continue recording zero years)
     if (portfolioEnd <= 0) depleted = true;
@@ -523,5 +640,7 @@ export function projectScenario(input: ProjectorInput): ProjectorOutput {
     yearlyEndBalances,
     depleted,
     finalBalance: balances.reduce((s, b) => s + b.balance, 0),
+    lifetimeFederalTax,
+    traditionalBalanceAtRMDAge,
   };
 }

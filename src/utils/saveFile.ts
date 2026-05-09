@@ -105,6 +105,9 @@ const scenarioSchema = z.object({
   // allocationOverride is a Partial<InvestmentAssumptions> — accept any object to round-trip cleanly
   allocationOverride: z.record(z.unknown()).optional(),
   additionalOneTimeExpenses: z.array(oneTimeExpenseSchema).optional(),
+  // Roth conversion planner controls (Spec 04 §3.4); both optional for back-compat.
+  enableRothOptimizer: z.boolean().optional(),
+  rothConversionTargetBracket: z.enum(["12pct", "22pct", "24pct"]).optional(),
 });
 
 const saveStateSchema = z.object({

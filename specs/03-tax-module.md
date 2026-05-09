@@ -116,7 +116,24 @@ Medicare IRMAA surcharges kick in at MAGI > $212,000 (MFJ, 2025). Flag years whe
 The optimizer adds to each year's `TaxSnapshot`:
 - `rothConversionAmount` — dollars converted
 - `rothConversionTaxCost` — marginal tax on that conversion
-- `conversionRationale` — human-readable string (e.g. "Filled 22% bracket: $45,200 converted")
+- `conversionRationale` — human-readable string (e.g. "Filled 22% bracket: $45,200 converted", "Partial — RMD used most of bracket", "No headroom — RMD fills bracket")
+
+The optimizer also produces a `RothConversionSummary` for the full scenario (used by the UI summary bar):
+
+```typescript
+interface RothConversionSummary {
+  totalConverted: number;           // cumulative dollars converted across all years
+  totalTaxCostWithConversions: number;    // lifetime federal tax with strategy
+  totalTaxCostWithoutConversions: number; // lifetime federal tax if no conversions done
+  estimatedTaxSavings: number;      // difference — the headline figure shown in UI
+  conversionWindowStart: number;    // first year a conversion is recommended (calendar year)
+  conversionWindowEnd: number;      // last year a conversion is recommended
+  traditionalBalanceAtRMDAge: number; // projected traditional balance at age 73 without conversions — RMD tax bomb indicator
+  narrativeSummary: string;         // 2–3 sentence plain-English explanation generated from the above fields
+}
+```
+
+`estimatedTaxSavings` is computed by running the projection twice on the median path — once with the optimizer enabled, once with it disabled — and diffing total lifetime federal tax.
 
 ---
 
@@ -167,3 +184,4 @@ Tax module unit tests must verify:
 
 ## Changelog
 - 2026-05-09T16:19:58Z: §6.2 Roth conversion algorithm updated — RMD income now factored into bracket headroom calculation; conversions continue past age 73 where headroom exists
+- 2026-05-09T20:12:00Z: §6.5 Output expanded — added RothConversionSummary type with estimatedTaxSavings headline, conversion window, traditional balance at RMD age, and narrativeSummary for UI summary bar

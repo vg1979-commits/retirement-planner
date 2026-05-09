@@ -174,3 +174,6 @@ Do not implement these — stub with placeholder UI if needed:
 - 2026-05-09T16:19:58Z: Spec 01 §10 clarified — SaveFile explicitly includes all scenarios and one-time expenses; results and ui excluded
 - 2026-05-09T16:27:57Z: Spec 04 Tab 4 redesigned — unified side-by-side expense table with copy toggle; inflation rate moved to Tab 5 Assumptions
 - 2026-05-09T16:27:57Z: Spec 01 §4 updated — inflationRate moved from ExpenseProfile to InvestmentAssumptions; copyCurrentToRetirement flag added to ExpenseProfile
+- 2026-05-09T20:12:00Z: Spec 04 §3.4 Roth Conversion Planner fully built out — optimizer toggle, target bracket selector, summary bar with estimated tax savings headline and plain-language rationale, detailed year-by-year table
+- 2026-05-09T20:12:00Z: Spec 03 §6.5 updated — RothConversionSummary type added; estimatedTaxSavings computed by diffing lifetime tax with vs. without conversions on median path
+- 2026-05-09T20:12:00Z: Spec 01 updated — RothConversionSummary type added in §8a; SimulationResult gains rothConversionSummary field; TaxSnapshot gains conversionRationale field

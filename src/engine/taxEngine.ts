@@ -132,6 +132,8 @@ export interface TaxInput {
   netInvestmentIncome: number;
 
   rothConversionAmount?: number;
+  /** Plain-English explanation from optimizeRothConversion(); surfaced in the Tax View. */
+  conversionRationale?: string;
 }
 
 // ─── Main calculation ─────────────────────────────────────────────────────────
@@ -145,6 +147,7 @@ export function calculateTax(input: TaxInput): TaxSnapshot {
     qualifiedDividends,
     netInvestmentIncome,
     rothConversionAmount = 0,
+    conversionRationale,
   } = input;
 
   const brackets = inflateBrackets(TAX_BRACKETS_2025_MFJ, year, inflationRate);
@@ -183,6 +186,7 @@ export function calculateTax(input: TaxInput): TaxSnapshot {
     marginalRate: marginalOrdinaryRate,
     rothConversionAmount: rothConversionAmount || undefined,
     rothConversionTaxCost,
+    conversionRationale,
   };
 }
 
@@ -262,7 +266,7 @@ export function optimizeRothConversion(
   if (conversionAmount <= 0) {
     // RMDs (or other income) filled the bracket — no conversion this year.
     const reason = olderSpouseAge >= RMD_START_AGE && rmdIncome > 0
-      ? "RMD income filled the target bracket"
+      ? "No headroom — RMD fills bracket"
       : "No bracket headroom remaining";
     return { ...noConversion, rationale: reason };
   }
@@ -275,10 +279,17 @@ export function optimizeRothConversion(
     totalOrdinaryBeforeConversion + conversionAmount + longTermCapitalGains;
   const irmaaWarning = magiAfterConversion > irmaaThreshold;
 
+  // RMD years that still have headroom get a more descriptive label so the
+  // Tax View table can explain partial conversions per Spec 04 §3.4.
+  const isPartialPostRmd = olderSpouseAge >= RMD_START_AGE && rmdIncome > 0;
+  const rationale = isPartialPostRmd
+    ? `Partial — RMD used most of bracket`
+    : `Filled ${targetBracket.replace("pct", "%")} bracket: $${Math.round(conversionAmount).toLocaleString()} converted`;
+
   return {
     conversionAmount: Math.round(conversionAmount),
     taxCost: Math.round(taxCost),
-    rationale: `Filled ${targetBracket.replace("pct", "%")} bracket: $${Math.round(conversionAmount).toLocaleString()} converted`,
+    rationale,
     irmaaWarning,
   };
 }

@@ -118,6 +118,10 @@ export interface AssetAllocation {
 
 // ─── Scenarios ────────────────────────────────────────────────────────────────
 
+/** Maximum federal bracket the Roth conversion optimizer will fill each year.
+ *  Surfaces in the Tax View as the "Target Bracket" segmented control. */
+export type RothConversionTargetBracket = "12pct" | "22pct" | "24pct";
+
 export interface Scenario {
   id: string;
   label: string; // e.g. "Base Case — Retire at 58"
@@ -127,6 +131,10 @@ export interface Scenario {
   annualSpendingOverride?: number;
   allocationOverride?: Partial<InvestmentAssumptions>;
   additionalOneTimeExpenses?: OneTimeExpense[];
+
+  // Roth conversion planner settings (Spec 04 §3.4 controls). Defaults: optimizer ON, 22%.
+  enableRothOptimizer?: boolean;
+  rothConversionTargetBracket?: RothConversionTargetBracket;
 }
 
 export interface OneTimeExpense {
@@ -153,6 +161,9 @@ export interface SimulationResult {
     p75: number[];
     p90: number[];
   };
+
+  /** Roth conversion summary computed from the median path (Spec 03 §6.5). */
+  rothConversionSummary: RothConversionSummary;
 }
 
 export interface AnnualProjection {
@@ -168,6 +179,7 @@ export interface AnnualProjection {
   // Taxes
   federalTax: number;
   effectiveTaxRate: number;
+  marginalRate: number; // marginal ordinary rate that year (used in Roth planner table)
 
   // Expenses
   totalExpenses: number;
@@ -180,6 +192,27 @@ export interface AnnualProjection {
   portfolioEndBalance: number;
 
   withdrawalBreakdown: { accountId: string; amount: number }[];
+
+  // Roth Conversion Planner table (Spec 04 §3.4)
+  traditionalBalanceStart: number;        // start-of-year sum across all traditional accounts
+  rmdAmount: number;                       // RMDs taken this year (0 before age 73)
+  rothConversionAmount: number;           // 0 if optimizer off / no headroom
+  rothConversionTaxCost: number;
+  conversionRationale?: string;            // plain-English explanation
+  irmaaWarning: boolean;                   // conversion pushed MAGI over IRMAA threshold
+}
+
+// ─── Roth Conversion Summary (Spec 01 §8a) ───────────────────────────────────
+
+export interface RothConversionSummary {
+  totalConverted: number;                  // cumulative dollars converted across all years
+  totalTaxCostWithConversions: number;     // lifetime federal tax with strategy enabled
+  totalTaxCostWithoutConversions: number;  // lifetime federal tax if no conversions done
+  estimatedTaxSavings: number;             // headline figure: without minus with
+  conversionWindowStart: number | null;    // first year a conversion happened (null if none)
+  conversionWindowEnd: number | null;      // last year a conversion happened (null if none)
+  traditionalBalanceAtRMDAge: number;      // projected traditional balance at age 73 in the no-conversion baseline
+  narrativeSummary: string;                // 2–3 sentence plain-English explanation for the UI summary bar
 }
 
 // ─── Tax Snapshot ─────────────────────────────────────────────────────────────
@@ -202,6 +235,8 @@ export interface TaxSnapshot {
 
   rothConversionAmount?: number;
   rothConversionTaxCost?: number;
+  /** Plain-English explanation surfaced in the Tax View Roth Planner table. */
+  conversionRationale?: string;
 }
 
 export interface TaxBracketLine {

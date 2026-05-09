@@ -159,11 +159,40 @@ Two sub-tabs:
 - Highlight years with Roth conversions (dots on the line)
 
 **Roth Conversion Planner**
-- Table showing year-by-year conversion opportunities
-- Columns: Year | Traditional Balance | Conversion Amount | Tax Cost | Projected Roth Balance at 90
-- Toggle: enable/disable Roth conversion optimization
-- Target bracket selector: 12% / 22% / 24%
-- IRMAA warning flags shown inline
+
+*Controls (above the table)*
+- **Enable Optimizer toggle** — on/off switch; when off, no conversions are modeled and the table shows $0 in the Conversion Amount column; when on, the optimizer runs and populates the table
+- **Target Bracket selector** — segmented control with three options: "12% (Conservative)" | "22% (Moderate, default)" | "24% (Aggressive)"; sets the maximum bracket the optimizer fills each year
+
+*Summary bar (between controls and table)*
+A highlighted summary block showing:
+- **Estimated Tax Savings from Conversion Strategy: $XX** — total tax saved vs. a no-conversion baseline, computed as: (total lifetime tax without conversions) − (total lifetime tax with conversions) across the median Monte Carlo run
+- **Total Converted: $XX** — cumulative dollars moved to Roth across all conversion years
+- **Conversion Window: YYYY–YYYY** — first and last year a conversion is recommended
+- **Plain-language rationale** — 2–3 sentences explaining the recommendation in plain English, generated from the `conversionRationale` fields, e.g.: *"You have a 12-year window between retirement and RMDs where your marginal rate drops from 35% to 22%. Converting $45,000–$60,000 per year during this window is projected to save approximately $180,000 in lifetime taxes. After age 73, RMDs consume most of the bracket headroom, limiting further conversions."*
+
+*Year-by-year table*
+
+| Year | Age | Traditional Balance | RMD | Conversion Amount | Tax Cost | Marginal Rate | Rationale | IRMAA |
+|---|---|---|---|---|---|---|---|---|
+| 2031 | 58/57 | $1,840,000 | — | $52,400 | $11,528 | 22% | Filled 22% bracket | — |
+| 2032 | 59/58 | $1,810,000 | — | $54,100 | $11,902 | 22% | Filled 22% bracket | — |
+| 2044 | 73/72 | $980,000 | $38,200 | $14,100 | $3,102 | 22% | Partial — RMD used most of bracket | ⚠️ |
+
+Column definitions:
+- **Year** — calendar year
+- **Age** — age of both spouses (S1/S2)
+- **Traditional Balance** — start-of-year balance across all traditional accounts
+- **RMD** — required minimum distribution that year (blank/— before age 73)
+- **Conversion Amount** — amount the optimizer recommends converting; $0 if optimizer is off or no headroom
+- **Tax Cost** — marginal federal tax owed on the conversion amount
+- **Marginal Rate** — effective marginal rate at which the conversion is taxed
+- **Rationale** — plain-language note from `conversionRationale` (e.g. "Filled 22% bracket", "Partial — RMD used most of bracket", "No headroom — RMD fills bracket")
+- **IRMAA** — ⚠️ warning icon if the conversion pushes MAGI above the IRMAA threshold ($212,000 MFJ); blank otherwise
+
+*Footer*
+- "Without conversion strategy, estimated traditional balance at age 73: $X" — shows the RMD tax bomb risk if conversions are skipped
+- Export to CSV button
 
 ---
 
@@ -339,3 +368,4 @@ Users can persist their entire plan to a local file and reload it later — no a
 - 2026-05-09T16:19:58Z: Added §9 Save & Import — manual file save/import via header buttons, auto-save to localStorage, versioned JSON format
 - 2026-05-09T16:19:58Z: §9 clarified — Save and Import explicitly cover all scenario data including one-time expenses
 - 2026-05-09T16:27:57Z: Tab 4 redesigned — unified side-by-side table for current and retirement spending; copy toggle added; inflation rate moved to Tab 5 Assumptions
+- 2026-05-09T20:12:00Z: §3.4 Roth Conversion Planner fully specified — optimizer toggle, target bracket selector, summary bar with estimated tax savings and plain-language rationale, detailed year-by-year table with RMD, rationale, and IRMAA columns, footer with RMD tax bomb indicator

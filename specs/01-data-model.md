@@ -180,6 +180,9 @@ interface SimulationResult {
 
   successRate: number; // 0–1, fraction of runs that never hit $0
 
+  // Roth conversion summary for the Tax View summary bar
+  rothConversionSummary: RothConversionSummary;
+
   // Per-year summary (median path)
   annualProjections: AnnualProjection[];
 
@@ -243,8 +246,26 @@ interface TaxSnapshot {
   effectiveRate: number;
   marginalRate: number;
 
-  rothConversionAmount?: number;   // if a conversion was done this year
+  rothConversionAmount?: number;    // if a conversion was done this year
   rothConversionTaxCost?: number;
+  conversionRationale?: string;     // plain-English explanation of why/why-not (e.g. "Filled 22% bracket", "No headroom — RMD fills bracket")
+}
+```
+
+---
+
+## 8a. Roth Conversion Summary (per scenario)
+
+```typescript
+interface RothConversionSummary {
+  totalConverted: number;                  // cumulative dollars converted across all years
+  totalTaxCostWithConversions: number;     // lifetime federal tax with strategy enabled
+  totalTaxCostWithoutConversions: number;  // lifetime federal tax if no conversions done
+  estimatedTaxSavings: number;             // headline figure: without minus with
+  conversionWindowStart: number;           // first year a conversion is recommended
+  conversionWindowEnd: number;             // last year a conversion is recommended
+  traditionalBalanceAtRMDAge: number;      // projected trad. balance at age 73 without conversions
+  narrativeSummary: string;                // 2–3 sentence plain-English explanation for the UI summary bar
 }
 
 interface TaxBracketLine {
@@ -339,3 +360,4 @@ The user must fill in all inputs before running a simulation. Empty-state UI (se
 - 2026-05-09T16:19:58Z: §10 clarified — SaveFile explicitly includes all scenarios and one-time expenses; results and ui explicitly excluded
 - 2026-05-09T16:27:57Z: ExpenseProfile.inflationRate moved to InvestmentAssumptions — single source of truth; ExpenseProfile.copyCurrentToRetirement added to drive copy toggle state
 - 2026-05-09T19:24:07Z: §10 SaveFile bullet list corrected — expenses entry no longer mentions inflation rate (moved to investmentAssumptions); both entries now explicitly map to their Tab
+- 2026-05-09T20:12:00Z: Added §8a RothConversionSummary type; added rothConversionSummary field to SimulationResult; added conversionRationale field to TaxSnapshot
