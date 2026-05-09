@@ -280,6 +280,25 @@ interface UIState {
 
 ---
 
+## 10. Save File Format
+
+When the user saves their plan to a local `.json` file, it is wrapped in a versioned envelope. This allows future data model migrations without breaking old files.
+
+```typescript
+interface SaveFile {
+  version: string;        // current: "1"
+  savedAt: string;        // ISO 8601 datetime
+  state: Omit<AppState, "results" | "ui">; // inputs only — no simulation results, no UI state
+}
+```
+
+- `results` is excluded: always re-computed after import
+- `ui` is excluded: UI resets to defaults on import (active view → "inputs")
+- On import, the file is validated against the Zod schema for `SaveFile` before being applied
+- If `version` is unrecognized, display a warning but attempt to load anyway
+
+---
+
 ## 9. Initial State
 
 The app starts with a completely empty state — no pre-filled demo data. All fields begin blank or at their minimum valid value. The Zustand store initializes with:
@@ -302,3 +321,4 @@ The user must fill in all inputs before running a simulation. Empty-state UI (se
 - 2026-05-09: IncomeStream.owner stays "spouse1" | "spouse2" internally but UI displays spouse names from Tab 1; children excluded from income ownership
 - 2026-05-09: ExpenseProfile.currentAnnualSpending and retirementAnnualSpending are now derived fields; ExpenseCategory is now the source of truth with separate currentAmount and retirementAmount per category
 - 2026-05-09: UIState.activeView updated to include "release-notes"
+- 2026-05-09: Added §10 Save File Format — versioned SaveFile wrapper type for local .json export/import

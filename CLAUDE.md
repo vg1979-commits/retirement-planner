@@ -165,3 +165,4 @@ Do not implement these — stub with placeholder UI if needed:
 ## Changelog
 - 2026-05-09: Clarified that app starts with empty state — family profile is context only, not demo data
 - 2026-05-09: Added env variable guidance; .env.example created for VITE_GITHUB_OWNER and VITE_GITHUB_REPO
+- 2026-05-09: Added Save & Import feature — manual .json file save/import via header buttons plus auto-save to localStorage; versioned SaveFile format defined in Spec 01 §10 and fully specified in Spec 04 §9

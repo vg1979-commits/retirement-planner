@@ -228,3 +228,12 @@ export interface UIState {
   isSimulating: boolean;
   lastRunAt: string | null;
 }
+
+// ─── Save File Format (Spec 01 §10) ──────────────────────────────────────────
+
+/** Versioned wrapper written to .json file on manual save */
+export interface SaveFile {
+  version: string;  // current: "1"
+  savedAt: string;  // ISO 8601
+  state: Omit<AppState, "results" | "ui">;
+}

@@ -40,10 +40,10 @@
 ```
 
 - Release Notes is visually separated from the main planning views by a divider in the sidebar — it is informational, not part of the planning workflow
-
 - Sidebar is collapsible on smaller screens
 - Header has a prominent **"Run Simulation"** button with spinner during calculation
 - Header shows time since last simulation run
+- Header also contains **"Save"** and **"Import"** buttons (see §9 for full behavior)
 
 ---
 
@@ -272,6 +272,45 @@ components/
 - Color is never the only conveyor of information (icons + text accompany all color coding)
 - WCAG 2.1 AA contrast ratios on all text
 
+---
+
+## 9. Save & Import
+
+Users can persist their entire plan to a local file and reload it later — no account or login required. This is the primary persistence mechanism for v1.
+
+**Save**
+- Triggered by the **"Save"** button in the header
+- Serializes the full `AppState` (household profile, accounts, income streams, expenses, assumptions, scenarios) to JSON
+- Downloads the file to the user's computer as `retirement-plan-YYYY-MM-DD.json` (date auto-appended)
+- Simulation results (`results`) are excluded from the saved file — they are always re-computed on load
+- A success toast confirms: "Plan saved — retirement-plan-2026-05-09.json"
+
+**Import**
+- Triggered by the **"Import"** button in the header
+- Opens the browser's native file picker, filtered to `.json` files only
+- On file selection:
+  1. Parse and validate the JSON against the `AppState` Zod schema
+  2. If valid: replace current app state with imported state; show success toast "Plan loaded successfully"
+  3. If invalid or unrecognized format: show error toast "This file doesn't look like a valid retirement plan. Please check the file and try again." — do not modify current state
+- If the user has unsaved inputs, show a confirmation dialog before overwriting: "Loading this file will replace your current inputs. Continue?"
+
+**Auto-save to localStorage**
+- In addition to manual file save, the app auto-saves to `localStorage` (key: `retirement-planner-state`) on every input change, debounced 500ms
+- On app load: if `localStorage` has a saved state, restore it silently (no prompt)
+- This covers accidental browser closes between manual saves
+- localStorage is a convenience backup only — the `.json` file is the canonical portable format
+
+**File format**
+```json
+{
+  "version": "1",
+  "savedAt": "2026-05-09T14:32:00Z",
+  "state": { ...AppState minus results }
+}
+```
+- `version` field allows future migrations if the data model changes
+- If `version` is missing or unrecognized, show a warning: "This file was saved with an older version of the app. Some fields may not load correctly."
+
 ## Changelog
 - 2026-05-09: Updated Inputs View section
 - 2026-05-09: Children section in Tab 1 is now a dynamic add/remove list (name + birth year inputs)
@@ -280,3 +319,4 @@ components/
 - 2026-05-09: Tab 4 Expenses redesigned — category breakdowns drive Current and Retirement totals; both totals are read-only
 - 2026-05-09: Added Release Notes view (§3.6) — fetched from GitHub Releases API, shown in sidebar below a divider
 - 2026-05-09: GitHub repo configured via VITE_GITHUB_OWNER and VITE_GITHUB_REPO env variables; documented in .env.example
+- 2026-05-09: Added §9 Save & Import — manual file save/import via header buttons, auto-save to localStorage, versioned JSON format
