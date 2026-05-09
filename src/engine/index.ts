@@ -15,7 +15,7 @@ import { DEFAULT_NUM_SIMULATIONS } from "./constants";
 // ─── Public options ──────────────────────────────────────────────────────────
 
 export interface RunOptions {
-  numSimulations?: number;     // default 1_000
+  numSimulations?: number;     // default 1_500
   baseSeed?: number;           // default 42
   startYear?: number;          // default = current calendar year
   onProgress?: (progress: number) => void; // 0–1, called periodically

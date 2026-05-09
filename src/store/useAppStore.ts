@@ -158,7 +158,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set((s) => ({ ui: { ...s.ui, activeView: view } })),
 
   // ── Simulation ──
-  runSimulations: async (numSimulations = 1_000) => {
+  runSimulations: async (numSimulations = 1_500) => {
     activeRun?.cancel();
 
     set((s) => ({

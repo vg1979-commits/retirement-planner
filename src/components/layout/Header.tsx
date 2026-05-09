@@ -46,7 +46,7 @@ export default function Header() {
           </button>
         ) : (
           <button
-            onClick={() => runSimulations(1000)}
+            onClick={() => runSimulations()}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors"
           >
             <Play size={14} />

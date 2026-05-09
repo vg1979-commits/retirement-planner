@@ -19,7 +19,7 @@ function bigColorClass(rate: number) {
   return "text-red-600";
 }
 
-export default function SuccessGauge({ successRate, label, numSimulations = 1000 }: Props) {
+export default function SuccessGauge({ successRate, label, numSimulations = 1500 }: Props) {
   const pct = Math.round(successRate * 100);
   return (
     <div className={`rounded-xl border-2 p-5 ${colorClass(successRate)} text-center`}>

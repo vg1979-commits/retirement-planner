@@ -118,5 +118,5 @@ export const EARLY_WITHDRAWAL_PENALTY_FREE_AGE = 59.5;
 
 // ─── Simulation Defaults ──────────────────────────────────────────────────────
 
-export const DEFAULT_NUM_SIMULATIONS = 1_000;
+export const DEFAULT_NUM_SIMULATIONS = 1_500;
 export const BASE_YEAR = 2025;
