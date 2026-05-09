@@ -163,6 +163,14 @@ Do not implement these — stub with placeholder UI if needed:
 ---
 
 ## Changelog
-- 2026-05-09: Clarified that app starts with empty state — family profile is context only, not demo data
-- 2026-05-09: Added env variable guidance; .env.example created for VITE_GITHUB_OWNER and VITE_GITHUB_REPO
-- 2026-05-09: Added Save & Import feature — manual .json file save/import via header buttons plus auto-save to localStorage; versioned SaveFile format defined in Spec 01 §10 and fully specified in Spec 04 §9
+- 2026-05-09T16:19:58Z: Clarified that app starts with empty state — family profile is context only, not demo data
+- 2026-05-09T16:19:58Z: Added env variable guidance; .env.example created for VITE_GITHUB_OWNER and VITE_GITHUB_REPO
+- 2026-05-09T16:19:58Z: Added Save & Import feature — manual .json file save/import via header buttons plus auto-save to localStorage; versioned SaveFile format defined in Spec 01 §10 and fully specified in Spec 04 §9
+- 2026-05-09T16:19:58Z: Spec 04 §3.1 updated — children section is dynamic add/remove list; account and income owner dropdowns driven by names from People & Timeline tab
+- 2026-05-09T16:19:58Z: Spec 04 §3.6 added — Release Notes view fetched from GitHub Releases API; configured via VITE_GITHUB_OWNER and VITE_GITHUB_REPO env variables
+- 2026-05-09T16:19:58Z: Spec 04 Tab 4 updated — expense category breakdowns drive Current and Retirement spending totals; totals are read-only
+- 2026-05-09T16:19:58Z: Spec 02 §5 updated — Roth 401k exempt from RMDs per SECURE 2.0; RMD–conversion interaction and RMD tax bomb warning added
+- 2026-05-09T16:19:58Z: Spec 03 §6.2 updated — Roth conversion optimizer now accounts for RMD income when calculating bracket headroom; conversions continue past age 73 where headroom remains
+- 2026-05-09T16:19:58Z: Spec 01 §10 clarified — SaveFile explicitly includes all scenarios and one-time expenses; results and ui excluded
+- 2026-05-09T16:27:57Z: Spec 04 Tab 4 redesigned — unified side-by-side expense table with copy toggle; inflation rate moved to Tab 5 Assumptions
+- 2026-05-09T16:27:57Z: Spec 01 §4 updated — inflationRate moved from ExpenseProfile to InvestmentAssumptions; copyCurrentToRetirement flag added to ExpenseProfile

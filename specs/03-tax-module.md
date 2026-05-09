@@ -88,14 +88,17 @@ The family likely has significant traditional 401k / IRA balances. After retirem
 ### 6.2 Algorithm
 
 ```
-For each year in the conversion window (both retired AND before RMD age):
+For each year from (both retired) through (end of plan):
   1. Determine taxable income from non-conversion sources (investment income, part-time work, etc.)
-  2. Identify "bracket headroom" — how much more income fits in current bracket
-  3. Determine target: fill up to top of 22% bracket (configurable)
-  4. Convert min(bracket_headroom, traditional_balance) to Roth
+  2. If age >= 73: calculate mandatory RMD for each traditional account; add total RMD to taxable income
+  3. Identify "bracket headroom" — how much more income fits in target bracket AFTER RMDs and other income
+  4. If headroom > 0 AND traditional_balance > 0:
+       Convert min(headroom, traditional_balance) to Roth
   5. Record conversion as ordinary income in TaxSnapshot
   6. Reduce traditional account balance; increase Roth balance
 ```
+
+Note: conversions continue to be evaluated after RMD age — RMDs may consume most or all of the bracket headroom, but partial conversions are still worthwhile in years where headroom remains. Do not hard-stop conversions at age 73.
 
 ### 6.3 Configurable Target Bracket
 
@@ -156,4 +159,11 @@ Tax module unit tests must verify:
 - LTCG stacking: 0% rate when ordinary income is low, 15% when stacked into LTCG brackets
 - NIIT: threshold detection, correct lesser-of calculation
 - Roth optimizer: correctly fills to target bracket, does not over-convert
+- Roth optimizer in RMD years: RMD income counted before calculating conversion headroom; no conversion when RMD fills the bracket
+- Roth optimizer post-73: conversions continue where bracket headroom remains after RMDs
 - Backdoor Roth: $0 tax cost when no existing IRA balance
+
+---
+
+## Changelog
+- 2026-05-09T16:19:58Z: §6.2 Roth conversion algorithm updated — RMD income now factored into bracket headroom calculation; conversions continue past age 73 where headroom exists

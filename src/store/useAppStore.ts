@@ -195,9 +195,21 @@ export const useAppStore = create<AppStore>((set, get) => ({
   updateExpenses: (patch) =>
     set((s) => {
       const next = { ...s.expenses, ...patch };
-      const expenses = patch.categories !== undefined
-        ? { ...next, ...deriveTotals(next.categories) }
-        : next;
+
+      // If the copy toggle is on, force every retirementAmount to mirror its currentAmount.
+      // This applies to BOTH cases: when categories were updated, AND when the toggle was just turned on.
+      let categories = next.categories;
+      if (next.copyCurrentToRetirement && (patch.categories !== undefined || patch.copyCurrentToRetirement === true)) {
+        categories = next.categories.map((c) =>
+          c.retirementAmount === c.currentAmount ? c : { ...c, retirementAmount: c.currentAmount }
+        );
+      }
+
+      const recomputeTotals = patch.categories !== undefined || patch.copyCurrentToRetirement === true;
+      const expenses = recomputeTotals
+        ? { ...next, categories, ...deriveTotals(categories) }
+        : { ...next, categories };
+
       scheduleAutoSave({ ...extractPlanState(s as AppStore), expenses });
       return { expenses };
     }),

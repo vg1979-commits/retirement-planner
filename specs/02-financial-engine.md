@@ -113,9 +113,13 @@ When expenses exceed income in any year, the engine draws down accounts in this 
 
 ### Phase 2: RMD Age (73+)
 
-- RMDs are calculated using IRS Uniform Lifetime Table (age-based divisor)
-- RMDs from all traditional accounts are mandatory; apply toward expense needs first
-- Excess RMDs (above expenses) are reinvested in taxable brokerage
+- RMDs are calculated using IRS Uniform Lifetime Table (age-based divisor applied to prior year-end balance)
+- RMDs apply to: traditional 401k, traditional IRA, deferred comp — **not** Roth IRA, **not** Roth 401k (SECURE 2.0 exempts Roth 401k from RMDs)
+- RMDs are mandatory regardless of whether the money is needed for expenses
+- RMD amounts are applied toward expense needs first; excess is reinvested in taxable brokerage
+- RMD income is recorded as ordinary income in that year's `TaxSnapshot` — it stacks on top of any other income and is taxed at marginal rates
+- **RMD–conversion interaction**: once RMDs begin, the mandatory ordinary income they generate reduces or eliminates bracket headroom for Roth conversions. The Roth conversion optimizer (Spec 03 §6) must account for RMD income when calculating available headroom in RMD years — conversions are only done if bracket space remains after RMDs are counted
+- **RMD tax bomb warning**: if projected traditional account balances at age 73 exceed ~$2M (configurable threshold), display a planning alert in the Tax View: "Large traditional balances may result in significant forced RMD income. Consider accelerating Roth conversions before age 73."
 
 ### Guardrails
 
@@ -173,5 +177,11 @@ The engine must have unit tests for:
 - Return generation: mean/std-dev of 10,000 samples within 5% of inputs
 - Tax calculation: spot-check against known MFJ tax tables
 - Withdrawal sequencing: correct account draw-down order
-- RMD calculation: matches IRS table for ages 73, 80, 90
+- RMD calculation: matches IRS table for ages 73, 80, 90; Roth 401k produces $0 RMD; Roth IRA produces $0 RMD
+- RMD–conversion interaction: in a year with a large RMD that fills the target bracket, optimizer produces $0 conversion
 - Success rate: a 4% SWR on a 60/40 portfolio should produce ~85–90% success over 30 years (historical validation)
+
+---
+
+## Changelog
+- 2026-05-09T16:19:58Z: §5 RMD rules tightened — Roth 401k explicitly exempt from RMDs per SECURE 2.0; RMD–Roth conversion interaction specified; RMD tax bomb warning added

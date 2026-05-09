@@ -211,9 +211,11 @@ export function optimizeRothConversion(
     longTermCapitalGains: number;
     traditionalBalance: number;
     targetBracket: ConversionTargetBracket;
-    // both spouses must be retired and below RMD age for conversion window
     bothRetired: boolean;
     olderSpouseAge: number;
+    /** Mandatory RMD income for this year (already realised from traditional accounts).
+     *  Per Spec 03 §6.2: RMDs consume bracket headroom before conversion is sized. */
+    rmdIncome?: number;
   }
 ): RothConversionResult {
   const {
@@ -225,6 +227,7 @@ export function optimizeRothConversion(
     targetBracket,
     bothRetired,
     olderSpouseAge,
+    rmdIncome = 0,
   } = params;
 
   const noConversion: RothConversionResult = {
@@ -234,12 +237,19 @@ export function optimizeRothConversion(
     irmaaWarning: false,
   };
 
-  if (!bothRetired || olderSpouseAge >= RMD_START_AGE) return noConversion;
+  // Per Spec 03 §6.2: conversions are evaluated for every year both spouses are
+  // retired — including post-RMD years — because partial conversions remain
+  // worthwhile when bracket headroom survives the RMD draw.
+  if (!bothRetired) return noConversion;
   if (traditionalBalance <= 0) return noConversion;
 
   const brackets = inflateBrackets(TAX_BRACKETS_2025_MFJ, year, inflationRate);
   const standardDeduction = inflateValue(STANDARD_DEDUCTION_2025_MFJ, year, inflationRate);
-  const taxableOrdinary = Math.max(0, ordinaryIncomeBeforeConversion - standardDeduction);
+
+  // Headroom is calculated AFTER RMD income is stacked on top of other ordinary income.
+  // In RMD years this typically eats most/all of the headroom in the target bracket.
+  const totalOrdinaryBeforeConversion = ordinaryIncomeBeforeConversion + rmdIncome;
+  const taxableOrdinary = Math.max(0, totalOrdinaryBeforeConversion - standardDeduction);
 
   const targetRate = TARGET_BRACKET_RATE[targetBracket];
   const targetBracketData = brackets.find((b) => b.rate === targetRate);
@@ -249,14 +259,20 @@ export function optimizeRothConversion(
   const headroom = Math.max(0, targetBracketTop - taxableOrdinary);
   const conversionAmount = Math.min(headroom, traditionalBalance);
 
-  if (conversionAmount <= 0) return noConversion;
+  if (conversionAmount <= 0) {
+    // RMDs (or other income) filled the bracket — no conversion this year.
+    const reason = olderSpouseAge >= RMD_START_AGE && rmdIncome > 0
+      ? "RMD income filled the target bracket"
+      : "No bracket headroom remaining";
+    return { ...noConversion, rationale: reason };
+  }
 
   const marginalOrdinaryRate = marginalRate(taxableOrdinary, brackets);
   const taxCost = conversionAmount * marginalOrdinaryRate;
 
   const irmaaThreshold = inflateValue(IRMAA_THRESHOLD_2025_MFJ, year, inflationRate);
   const magiAfterConversion =
-    ordinaryIncomeBeforeConversion + conversionAmount + longTermCapitalGains;
+    totalOrdinaryBeforeConversion + conversionAmount + longTermCapitalGains;
   const irmaaWarning = magiAfterConversion > irmaaThreshold;
 
   return {

@@ -71,7 +71,10 @@ const expenseCategorySchema = z.object({
 const expenseProfileSchema = z.object({
   currentAnnualSpending: z.number(),
   retirementAnnualSpending: z.number(),
-  inflationRate: z.number(),
+  // Optional for backward compat with v1 files that still carried inflationRate; ignored on read.
+  inflationRate: z.number().optional(),
+  // Defaults to false for older files that pre-date the copy toggle.
+  copyCurrentToRetirement: z.boolean().optional().default(false),
   categories: z.array(expenseCategorySchema),
 });
 
@@ -87,12 +90,21 @@ const investmentAssumptionsSchema = z.object({
   inflationRate: z.number(),
 });
 
+const oneTimeExpenseSchema = z.object({
+  label: z.string(),
+  year: z.number(),
+  amount: z.number(),
+});
+
 const scenarioSchema = z.object({
   id: z.string(),
   label: z.string(),
   color: z.string(),
   retirementAgeOverride: z.object({ spouse1: z.number().optional(), spouse2: z.number().optional() }).optional(),
   annualSpendingOverride: z.number().optional(),
+  // allocationOverride is a Partial<InvestmentAssumptions> — accept any object to round-trip cleanly
+  allocationOverride: z.record(z.unknown()).optional(),
+  additionalOneTimeExpenses: z.array(oneTimeExpenseSchema).optional(),
 });
 
 const saveStateSchema = z.object({
@@ -150,7 +162,25 @@ export function parseSaveFile(raw: unknown): ParseResult {
   }
   const { version, state } = result.data;
   const versionWarning = version !== SAVE_FILE_VERSION;
-  return { ok: true, state: state as PlanState, versionWarning };
+
+  // Migrate legacy save files: ExpenseProfile.inflationRate moved to InvestmentAssumptions.
+  // If the parsed expenses still has inflationRate, hoist it onto assumptions and drop it.
+  const rawExpenses = state.expenses as { inflationRate?: number } & typeof state.expenses;
+  const { inflationRate: legacyInflation, ...expensesClean } = rawExpenses;
+  const investmentAssumptions = legacyInflation !== undefined
+    ? { ...state.investmentAssumptions, inflationRate: legacyInflation }
+    : state.investmentAssumptions;
+
+  const normalized: PlanState = {
+    ...state,
+    expenses: {
+      ...expensesClean,
+      copyCurrentToRetirement: expensesClean.copyCurrentToRetirement ?? false,
+    },
+    investmentAssumptions,
+  } as PlanState;
+
+  return { ok: true, state: normalized, versionWarning };
 }
 
 export function readJsonFile(file: File): Promise<unknown> {

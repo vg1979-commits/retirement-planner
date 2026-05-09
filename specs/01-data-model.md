@@ -98,17 +98,19 @@ interface ExpenseProfile {
   // Both totals are derived (read-only in UI) — sum of their respective category amounts
   currentAnnualSpending: number;    // = sum of categories[].currentAmount
   retirementAnnualSpending: number; // = sum of categories[].retirementAmount
-  inflationRate: number;            // default 0.025 (2.5%)
 
-  categories: ExpenseCategory[]; // always present; drives both totals
+  // inflationRate lives in InvestmentAssumptions (Tab 5), not here
+
+  copyCurrentToRetirement: boolean; // drives the copy toggle in Tab 4; when true, retirementAmount mirrors currentAmount per category
+  categories: ExpenseCategory[];    // always present; drives both totals
 }
 
 interface ExpenseCategory {
   id: string;
-  label: string;         // e.g. "Housing", "Travel", "Healthcare"
-  currentAmount: number; // today's dollars; user-entered
-  retirementAmount: number; // today's dollars; user-entered independently
-  isCustom: boolean;     // false for default categories, true for user-added rows
+  label: string;            // e.g. "Housing", "Travel", "Healthcare"
+  currentAmount: number;    // today's dollars; user-entered
+  retirementAmount: number; // today's dollars; user-entered, or mirrored from currentAmount when copyCurrentToRetirement is true
+  isCustom: boolean;        // false for default categories, true for user-added rows; only custom rows can be deleted
 }
 ```
 
@@ -131,7 +133,7 @@ interface InvestmentAssumptions {
   cashReturn: number;            // default 0.045 (current HYSA rates)
 
   correlationEquityBond: number; // default -0.10
-  inflationRate: number;         // mirrors ExpenseProfile.inflationRate
+  inflationRate: number;         // default 0.025 (2.5%); moved here from ExpenseProfile; single source of truth used by both expense inflation and bracket inflation in the engine
 }
 
 interface AssetAllocation {
@@ -292,9 +294,21 @@ interface SaveFile {
 }
 ```
 
-- `results` is excluded: always re-computed after import
-- `ui` is excluded: UI resets to defaults on import (active view → "inputs")
-- On import, the file is validated against the Zod schema for `SaveFile` before being applied
+The `state` field explicitly includes:
+- `household` — people, children, planning horizon
+- `accounts` — all account balances and contributions
+- `incomeStreams` — all income sources
+- `expenses` — category breakdowns, current and retirement amounts per category, copy toggle state (Tab 4)
+- `investmentAssumptions` — pre/post-retirement allocation, return assumptions, volatility, correlation, and inflation rate (Tab 5)
+- `scenarios` — **all scenarios in full**, including each scenario's label, color, overrides, and `oneTimeEvents` (one-time expenses such as home purchases, large gifts, etc.)
+
+The `state` field explicitly excludes:
+- `results` — always re-computed after import; never persisted
+- `ui` — UI resets to defaults on import (active view → "inputs")
+
+On import:
+- File is validated against the Zod schema for `SaveFile` before being applied
+- All scenario data (including one-time expenses) is restored exactly as saved
 - If `version` is unrecognized, display a warning but attempt to load anyway
 
 ---
@@ -316,9 +330,12 @@ The user must fill in all inputs before running a simulation. Empty-state UI (se
 ---
 
 ## Changelog
-- 2026-05-09: Added §9 Initial State — app starts empty, no pre-filled demo data
-- 2026-05-09: Account.owner changed from union literal to string — dynamically driven by names entered in People & Timeline
-- 2026-05-09: IncomeStream.owner stays "spouse1" | "spouse2" internally but UI displays spouse names from Tab 1; children excluded from income ownership
-- 2026-05-09: ExpenseProfile.currentAnnualSpending and retirementAnnualSpending are now derived fields; ExpenseCategory is now the source of truth with separate currentAmount and retirementAmount per category
-- 2026-05-09: UIState.activeView updated to include "release-notes"
-- 2026-05-09: Added §10 Save File Format — versioned SaveFile wrapper type for local .json export/import
+- 2026-05-09T16:19:58Z: Added §9 Initial State — app starts empty, no pre-filled demo data
+- 2026-05-09T16:19:58Z: Account.owner changed from union literal to string — dynamically driven by names entered in People & Timeline
+- 2026-05-09T16:19:58Z: IncomeStream.owner stays "spouse1" | "spouse2" internally but UI displays spouse names from Tab 1; children excluded from income ownership
+- 2026-05-09T16:19:58Z: ExpenseProfile.currentAnnualSpending and retirementAnnualSpending are now derived fields; ExpenseCategory is now the source of truth with separate currentAmount and retirementAmount per category
+- 2026-05-09T16:19:58Z: UIState.activeView updated to include "release-notes"
+- 2026-05-09T16:19:58Z: Added §10 Save File Format — versioned SaveFile wrapper type for local .json export/import
+- 2026-05-09T16:19:58Z: §10 clarified — SaveFile explicitly includes all scenarios and one-time expenses; results and ui explicitly excluded
+- 2026-05-09T16:27:57Z: ExpenseProfile.inflationRate moved to InvestmentAssumptions — single source of truth; ExpenseProfile.copyCurrentToRetirement added to drive copy toggle state
+- 2026-05-09T19:24:07Z: §10 SaveFile bullet list corrected — expenses entry no longer mentions inflation rate (moved to investmentAssumptions); both entries now explicitly map to their Tab

@@ -75,25 +75,42 @@ Organized as a tabbed form with five sections:
 - "+ Add Income Stream" for RSUs, bonuses, rental income
 
 **Tab 4: Expenses**
-- Inflation rate (default 2.5%, editable) — shown at the top
 
-**Current Annual Spending**
-- Category breakdown table with columns: Category | Current Annual Amount
-- Default categories (all start at $0, user fills in): Housing, Food & Groceries, Transportation, Healthcare, Childcare & Education, Travel & Vacation, Dining & Entertainment, Personal & Shopping, Utilities & Subscriptions, Other
-- "+ Add Category" button allows adding custom rows; each row has a remove (×) button
-- **Current Annual Spending Total** — read-only, auto-calculated as sum of all Current Annual Amount values; displayed prominently below the table
+A single unified table combining current and retirement spending side by side.
 
-**Retirement Annual Spending**
-- Same category list as above, with columns: Category | Retirement Annual Amount
-- Retirement amounts are independent of current amounts — user fills each in separately
-- Categories added in the Current section also appear here automatically
-- **Retirement Annual Spending Total** — read-only, auto-calculated as sum of all Retirement Annual Amount values; displayed prominently below the table
+**Copy toggle** — displayed above the table as a labeled checkbox:
+- Label: "Copy Current Spending to Retirement Spending"
+- When **checked**: Retirement Annual Spending column becomes read-only; each retirement amount mirrors the corresponding current amount in real time. Unchecking does NOT clear the copied values — they remain as a starting point for editing.
+- When **unchecked**: Retirement Annual Spending column is editable independently
+
+**Expense table layout:**
+
+| Category | Current Annual Spending | Retirement Annual Spending |
+|---|---|---|
+| Housing | $[input] | $[input or mirrored] |
+| Food & Groceries | $[input] | $[input or mirrored] |
+| Transportation | $[input] | $[input or mirrored] |
+| Healthcare | $[input] | $[input or mirrored] |
+| Childcare & Education | $[input] | $[input or mirrored] |
+| Travel & Vacation | $[input] | $[input or mirrored] |
+| Dining & Entertainment | $[input] | $[input or mirrored] |
+| Personal & Shopping | $[input] | $[input or mirrored] |
+| Utilities & Subscriptions | $[input] | $[input or mirrored] |
+| Other | $[input] | $[input or mirrored] |
+| *(custom rows)* | $[input] | $[input or mirrored] |
+| **Total** | **$[read-only sum]** | **$[read-only sum]** |
+
+- All category amounts start at $0
+- Default categories cannot be removed; custom rows added via "+ Add Category" can be removed with a (×) button
+- **Total row** is always read-only for both columns — auto-sum of all rows above
+- When the copy toggle is checked, the Retirement column cells are visually dimmed to indicate read-only state
 
 **Tab 5: Assumptions**
 - Pre-retirement allocation: equity/bond/cash sliders (must sum to 100%)
 - Post-retirement allocation: same
 - Return assumptions: equity mean return, equity volatility, bond mean return, bond volatility
-- "Reset to defaults" button
+- **Inflation rate** (default 2.5%, editable) — moved here from Tab 4
+- "Reset to defaults" button resets all assumptions including inflation rate
 - Advanced toggle: correlation coefficient
 
 ---
@@ -280,7 +297,7 @@ Users can persist their entire plan to a local file and reload it later — no a
 
 **Save**
 - Triggered by the **"Save"** button in the header
-- Serializes the full `AppState` (household profile, accounts, income streams, expenses, assumptions, scenarios) to JSON
+- Serializes the full `AppState` inputs to JSON — this includes household profile, accounts, income streams, expenses, investment assumptions, and **all scenarios** (including each scenario's overrides and one-time expenses such as home purchases or large gifts)
 - Downloads the file to the user's computer as `retirement-plan-YYYY-MM-DD.json` (date auto-appended)
 - Simulation results (`results`) are excluded from the saved file — they are always re-computed on load
 - A success toast confirms: "Plan saved — retirement-plan-2026-05-09.json"
@@ -289,8 +306,8 @@ Users can persist their entire plan to a local file and reload it later — no a
 - Triggered by the **"Import"** button in the header
 - Opens the browser's native file picker, filtered to `.json` files only
 - On file selection:
-  1. Parse and validate the JSON against the `AppState` Zod schema
-  2. If valid: replace current app state with imported state; show success toast "Plan loaded successfully"
+  1. Parse and validate the JSON against the `SaveFile` Zod schema
+  2. If valid: replace current app state with imported state — restoring all inputs including all scenarios and their one-time expenses; show success toast "Plan loaded successfully"
   3. If invalid or unrecognized format: show error toast "This file doesn't look like a valid retirement plan. Please check the file and try again." — do not modify current state
 - If the user has unsaved inputs, show a confirmation dialog before overwriting: "Loading this file will replace your current inputs. Continue?"
 
@@ -312,11 +329,13 @@ Users can persist their entire plan to a local file and reload it later — no a
 - If `version` is missing or unrecognized, show a warning: "This file was saved with an older version of the app. Some fields may not load correctly."
 
 ## Changelog
-- 2026-05-09: Updated Inputs View section
-- 2026-05-09: Children section in Tab 1 is now a dynamic add/remove list (name + birth year inputs)
-- 2026-05-09: Account Owner dropdown in Tab 2 now dynamically populated from names entered in Tab 1
-- 2026-05-09: Income Owner dropdown in Tab 3 now dynamically populated from spouse names in Tab 1; children excluded
-- 2026-05-09: Tab 4 Expenses redesigned — category breakdowns drive Current and Retirement totals; both totals are read-only
-- 2026-05-09: Added Release Notes view (§3.6) — fetched from GitHub Releases API, shown in sidebar below a divider
-- 2026-05-09: GitHub repo configured via VITE_GITHUB_OWNER and VITE_GITHUB_REPO env variables; documented in .env.example
-- 2026-05-09: Added §9 Save & Import — manual file save/import via header buttons, auto-save to localStorage, versioned JSON format
+- 2026-05-09T16:19:58Z: Updated Inputs View section
+- 2026-05-09T16:19:58Z: Children section in Tab 1 is now a dynamic add/remove list (name + birth year inputs)
+- 2026-05-09T16:19:58Z: Account Owner dropdown in Tab 2 now dynamically populated from names entered in Tab 1
+- 2026-05-09T16:19:58Z: Income Owner dropdown in Tab 3 now dynamically populated from spouse names in Tab 1; children excluded
+- 2026-05-09T16:19:58Z: Tab 4 Expenses redesigned — category breakdowns drive Current and Retirement totals; both totals are read-only
+- 2026-05-09T16:19:58Z: Added Release Notes view (§3.6) — fetched from GitHub Releases API, shown in sidebar below a divider
+- 2026-05-09T16:19:58Z: GitHub repo configured via VITE_GITHUB_OWNER and VITE_GITHUB_REPO env variables; documented in .env.example
+- 2026-05-09T16:19:58Z: Added §9 Save & Import — manual file save/import via header buttons, auto-save to localStorage, versioned JSON format
+- 2026-05-09T16:19:58Z: §9 clarified — Save and Import explicitly cover all scenario data including one-time expenses
+- 2026-05-09T16:27:57Z: Tab 4 redesigned — unified side-by-side table for current and retirement spending; copy toggle added; inflation rate moved to Tab 5 Assumptions

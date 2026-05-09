@@ -13,7 +13,7 @@ function newId() {
 }
 
 export default function ScenariosView() {
-  const { scenarios, results, expenses, ui, setActiveScenarios, upsertScenario, removeScenario } = useAppStore();
+  const { scenarios, results, investmentAssumptions, ui, setActiveScenarios, upsertScenario, removeScenario } = useAppStore();
   const [slideOpen, setSlideOpen] = useState(false);
   const [editing, setEditing] = useState<Scenario | undefined>(undefined);
   const [displayMode, setDisplayMode] = useState<"nominal" | "real">("nominal");
@@ -96,7 +96,7 @@ export default function ScenariosView() {
                 projections={baseProjections}
                 scenarios={activeScenarios}
                 displayMode={displayMode}
-                inflationRate={expenses.inflationRate}
+                inflationRate={investmentAssumptions.inflationRate}
               />
             )}
           </div>

@@ -39,7 +39,7 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
       { id: "s1w2", owner: "spouse1", type: "w2_salary", label: "S1 W2", annualAmount: 400_000, startYear: 2026, endYear: 2050, growthRate: 0.03, taxTreatment: "ordinary_income" },
       { id: "s2w2", owner: "spouse2", type: "w2_salary", label: "S2 W2", annualAmount: 300_000, startYear: 2026, endYear: 2050, growthRate: 0.03, taxTreatment: "ordinary_income" },
     ],
-    expenses: { currentAnnualSpending: 200_000, retirementAnnualSpending: 180_000, inflationRate: 0.025, categories: [] },
+    expenses: { currentAnnualSpending: 200_000, retirementAnnualSpending: 180_000, copyCurrentToRetirement: false, categories: [] },
     investmentAssumptions: ASSUMPTIONS,
     scenarios: [],
     results: {},
@@ -143,7 +143,7 @@ describe("runSimulations — success rate", () => {
         { id: "cash1", owner: "joint", type: "cash", label: "Cash", currentBalance: 50_000, annualContribution: 0 },
       ],
       incomeStreams: [],
-      expenses: { currentAnnualSpending: 200_000, retirementAnnualSpending: 200_000, inflationRate: 0.025, categories: [] },
+      expenses: { currentAnnualSpending: 200_000, retirementAnnualSpending: 200_000, copyCurrentToRetirement: false, categories: [] },
     });
     const results = runSimulations(state, { numSimulations: 50, startYear: 2026 });
     expect(results[0].successRate).toBeLessThan(0.20);

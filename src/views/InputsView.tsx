@@ -175,18 +175,26 @@ function catId() {
 
 function ExpensesTab() {
   const { expenses, updateExpenses } = useAppStore();
-  const { categories, inflationRate } = expenses;
+  const { categories, copyCurrentToRetirement } = expenses;
 
   function updateCategory(id: string, key: "currentAmount" | "retirementAmount", value: number) {
-    updateExpenses({ categories: categories.map((c) => c.id === id ? { ...c, [key]: value } : c) });
+    updateExpenses({
+      categories: categories.map((c) => (c.id === id ? { ...c, [key]: value } : c)),
+    });
   }
 
   function updateLabel(id: string, label: string) {
-    updateExpenses({ categories: categories.map((c) => c.id === id ? { ...c, label } : c) });
+    updateExpenses({ categories: categories.map((c) => (c.id === id ? { ...c, label } : c)) });
   }
 
   function addCategory() {
-    const blank: ExpenseCategory = { id: catId(), label: "", currentAmount: 0, retirementAmount: 0, isCustom: true };
+    const blank: ExpenseCategory = {
+      id: catId(),
+      label: "",
+      currentAmount: 0,
+      retirementAmount: 0,
+      isCustom: true,
+    };
     updateExpenses({ categories: [...categories, blank] });
   }
 
@@ -194,25 +202,37 @@ function ExpensesTab() {
     updateExpenses({ categories: categories.filter((c) => c.id !== id) });
   }
 
+  function toggleCopy(checked: boolean) {
+    updateExpenses({ copyCurrentToRetirement: checked });
+  }
+
   return (
     <div className="space-y-4">
       <SectionCard>
-        <div className="max-w-xs">
-          <PercentInput
-            label="Inflation Rate"
-            value={inflationRate}
-            onChange={(v) => updateExpenses({ inflationRate: v })}
+        <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={copyCurrentToRetirement}
+            onChange={(e) => toggleCopy(e.target.checked)}
+            className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
           />
-        </div>
+          Copy Current Spending to Retirement Spending
+          {copyCurrentToRetirement && (
+            <span className="text-xs text-slate-400 ml-1">
+              (retirement column is read-only while enabled)
+            </span>
+          )}
+        </label>
       </SectionCard>
 
-      <SectionCard title="Current Annual Spending">
+      <SectionCard title="Annual Spending by Category">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-100">
+              <tr className="border-b border-slate-200">
                 <th className="text-left py-2 font-medium text-slate-600">Category</th>
-                <th className="text-right py-2 font-medium text-slate-600 w-44">Current Annual Amount</th>
+                <th className="text-right py-2 font-medium text-slate-600 w-48">Current Annual Spending</th>
+                <th className="text-right py-2 font-medium text-slate-600 w-48">Retirement Annual Spending</th>
                 <th className="w-8"></th>
               </tr>
             </thead>
@@ -231,11 +251,23 @@ function ExpensesTab() {
                       <span className="text-slate-700">{cat.label}</span>
                     )}
                   </td>
-                  <td className="py-1.5 text-right">
+                  <td className="py-1.5 px-2 text-right">
                     <CurrencyInput
                       value={cat.currentAmount}
                       onChange={(v) => updateCategory(cat.id, "currentAmount", v)}
                     />
+                  </td>
+                  <td className="py-1.5 px-2 text-right">
+                    {copyCurrentToRetirement ? (
+                      <span className="block px-2 py-1 text-sm text-slate-400 bg-slate-50 border border-slate-200 rounded-md text-right font-mono">
+                        {fmt.format(cat.currentAmount)}
+                      </span>
+                    ) : (
+                      <CurrencyInput
+                        value={cat.retirementAmount}
+                        onChange={(v) => updateCategory(cat.id, "retirementAmount", v)}
+                      />
+                    )}
                   </td>
                   <td className="py-1.5 pl-2">
                     {cat.isCustom && (
@@ -250,57 +282,26 @@ function ExpensesTab() {
                   </td>
                 </tr>
               ))}
+              <tr className="border-t-2 border-slate-300 bg-slate-50">
+                <td className="py-2 pr-3 font-semibold text-slate-800">Total</td>
+                <td className="py-2 px-2 text-right font-semibold text-slate-800 font-mono">
+                  {fmt.format(expenses.currentAnnualSpending)}
+                </td>
+                <td className="py-2 px-2 text-right font-semibold text-slate-800 font-mono">
+                  {fmt.format(expenses.retirementAnnualSpending)}
+                </td>
+                <td></td>
+              </tr>
             </tbody>
           </table>
         </div>
-        <div className="mt-3 flex items-center justify-between">
+        <div className="mt-3">
           <button
             onClick={addCategory}
             className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-blue-600 hover:text-blue-700 border border-blue-300 hover:border-blue-400 rounded-md transition-colors"
           >
             <Plus size={13} /> Add Category
           </button>
-          <div className="text-sm font-semibold text-slate-800">
-            Total: {fmt.format(expenses.currentAnnualSpending)}
-          </div>
-        </div>
-      </SectionCard>
-
-      <SectionCard title="Retirement Annual Spending">
-        <p className="text-xs text-slate-500 mb-3">
-          Enter your expected annual spending per category in retirement (today's dollars). Independent of your current amounts.
-        </p>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-100">
-                <th className="text-left py-2 font-medium text-slate-600">Category</th>
-                <th className="text-right py-2 font-medium text-slate-600 w-44">Retirement Annual Amount</th>
-                <th className="w-8"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {categories.map((cat) => (
-                <tr key={cat.id}>
-                  <td className="py-1.5 pr-3 text-slate-700">
-                    {cat.label || <span className="text-slate-400 italic">unnamed</span>}
-                  </td>
-                  <td className="py-1.5 text-right">
-                    <CurrencyInput
-                      value={cat.retirementAmount}
-                      onChange={(v) => updateCategory(cat.id, "retirementAmount", v)}
-                    />
-                  </td>
-                  <td className="w-8"></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="mt-3 flex justify-end">
-          <div className="text-sm font-semibold text-slate-800">
-            Total: {fmt.format(expenses.retirementAnnualSpending)}
-          </div>
         </div>
       </SectionCard>
     </div>
@@ -329,7 +330,7 @@ function AssumptionsTab() {
         />
       </SectionCard>
 
-      <SectionCard title="Return Assumptions">
+      <SectionCard title="Return & Inflation Assumptions">
         <div className="grid grid-cols-2 gap-4">
           <PercentInput label="Equity Mean Return" value={a.equityMeanReturn} onChange={(v) => updateAssumptions({ equityMeanReturn: v })} />
           <PercentInput label="Equity Volatility (σ)" value={a.equityStdDev} onChange={(v) => updateAssumptions({ equityStdDev: v })} />
@@ -337,6 +338,7 @@ function AssumptionsTab() {
           <PercentInput label="Bond Volatility (σ)" value={a.bondStdDev} onChange={(v) => updateAssumptions({ bondStdDev: v })} />
           <PercentInput label="Cash Return" value={a.cashReturn} onChange={(v) => updateAssumptions({ cashReturn: v })} />
           <PercentInput label="Equity/Bond Correlation" value={a.correlationEquityBond} min={-1} max={1} onChange={(v) => updateAssumptions({ correlationEquityBond: v })} />
+          <PercentInput label="Inflation Rate" value={a.inflationRate} onChange={(v) => updateAssumptions({ inflationRate: v })} />
         </div>
 
         <button
@@ -344,6 +346,7 @@ function AssumptionsTab() {
             equityMeanReturn: 0.07, equityStdDev: 0.15,
             bondMeanReturn: 0.035, bondStdDev: 0.06,
             cashReturn: 0.045, correlationEquityBond: -0.10,
+            inflationRate: 0.025,
           })}
           className="mt-4 px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 border border-slate-300 rounded-md transition-colors"
         >

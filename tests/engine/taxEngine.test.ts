@@ -213,9 +213,42 @@ describe("optimizeRothConversion", () => {
     expect(result.conversionAmount).toBe(0);
   });
 
-  it("does not convert when older spouse is at RMD age", () => {
-    const result = optimizeRothConversion({ ...base, olderSpouseAge: 73 });
+  it("continues to convert past RMD age when bracket headroom remains (no RMD income passed)", () => {
+    // Spec 03 §6.2: don't hard-stop at age 73. With no rmdIncome supplied, optimizer
+    // behaves like pre-RMD years and fills the target bracket.
+    const result = optimizeRothConversion({ ...base, olderSpouseAge: 75 });
+    expect(result.conversionAmount).toBeGreaterThan(0);
+  });
+
+  it("RMD income consumes bracket headroom — no conversion when RMD fills target bracket", () => {
+    // 22% bracket top ≈ $201,050. A $250k RMD already overshoots the target → $0 conversion.
+    const result = optimizeRothConversion({
+      ...base,
+      olderSpouseAge: 75,
+      ordinaryIncomeBeforeConversion: 30_000,
+      rmdIncome: 250_000,
+    });
     expect(result.conversionAmount).toBe(0);
+    expect(result.rationale).toMatch(/RMD/i);
+  });
+
+  it("RMD income partially consumes headroom — conversion sized to remaining gap", () => {
+    // Other ordinary 30k + RMD 50k = 80k, taxable ≈ 50.8k. 22% top ≈ 201,050.
+    // Headroom ≈ 150k → conversion is non-zero but less than the no-RMD case (170,250).
+    const noRmd = optimizeRothConversion({
+      ...base,
+      olderSpouseAge: 75,
+      ordinaryIncomeBeforeConversion: 30_000,
+    });
+    const withRmd = optimizeRothConversion({
+      ...base,
+      olderSpouseAge: 75,
+      ordinaryIncomeBeforeConversion: 30_000,
+      rmdIncome: 50_000,
+    });
+    expect(withRmd.conversionAmount).toBeGreaterThan(0);
+    expect(withRmd.conversionAmount).toBeLessThan(noRmd.conversionAmount);
+    expect(noRmd.conversionAmount - withRmd.conversionAmount).toBeCloseTo(50_000, -2);
   });
 
   it("capped by traditional balance", () => {

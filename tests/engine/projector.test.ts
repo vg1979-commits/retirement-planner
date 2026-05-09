@@ -81,7 +81,7 @@ function makeBaseInput(overrides: Partial<ProjectorInput> = {}): ProjectorInput 
     expenses: {
       currentAnnualSpending: 200_000,
       retirementAnnualSpending: 180_000,
-      inflationRate: 0.025,
+      copyCurrentToRetirement: false,
       categories: [],
     },
     investmentAssumptions: ASSUMPTIONS,
@@ -249,7 +249,7 @@ describe("projectScenario — depletion", () => {
       expenses: {
         currentAnnualSpending: 200_000,
         retirementAnnualSpending: 200_000,
-        inflationRate: 0.025,
+        copyCurrentToRetirement: false,
         categories: [],
       },
       investmentAssumptions: ASSUMPTIONS,

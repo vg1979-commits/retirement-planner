@@ -39,7 +39,7 @@ export const INITIAL_INCOME_STREAMS: IncomeStream[] = [];
 export const INITIAL_EXPENSES: ExpenseProfile = {
   currentAnnualSpending: 0,
   retirementAnnualSpending: 0,
-  inflationRate: 0.025,
+  copyCurrentToRetirement: false,
   categories: DEFAULT_CATEGORIES,
 };
 

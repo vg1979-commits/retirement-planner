@@ -76,17 +76,20 @@ export interface ExpenseProfile {
   // Derived: sum of categories[].currentAmount / retirementAmount — read-only in UI
   currentAnnualSpending: number;
   retirementAnnualSpending: number;
-  inflationRate: number; // default 0.025
+
+  // Tab 4 copy toggle: when true, retirement amounts mirror current amounts in real time.
+  // Inflation rate now lives on InvestmentAssumptions (single source of truth).
+  copyCurrentToRetirement: boolean;
 
   categories: ExpenseCategory[]; // source of truth; drives both totals
 }
 
 export interface ExpenseCategory {
   id: string;
-  label: string;         // e.g. "Housing", "Travel", "Healthcare"
-  currentAmount: number; // today's dollars; user-entered
-  retirementAmount: number; // today's dollars; user-entered independently
-  isCustom: boolean;     // false for default categories, true for user-added rows
+  label: string;            // e.g. "Housing", "Travel", "Healthcare"
+  currentAmount: number;    // today's dollars; user-entered
+  retirementAmount: number; // today's dollars; user-entered, or mirrored from currentAmount when copyCurrentToRetirement is true
+  isCustom: boolean;        // false for default categories, true for user-added rows; only custom rows can be deleted
 }
 
 // ─── Investment Assumptions ───────────────────────────────────────────────────
@@ -103,7 +106,7 @@ export interface InvestmentAssumptions {
   cashReturn: number;            // default 0.045
 
   correlationEquityBond: number; // default -0.10
-  inflationRate: number;         // mirrors ExpenseProfile.inflationRate
+  inflationRate: number;         // default 0.025; single source of truth — used for expense growth and tax-bracket inflation
 }
 
 export interface AssetAllocation {

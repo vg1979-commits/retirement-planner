@@ -37,12 +37,17 @@ describe("useAppStore — initial state", () => {
     expect(s.ui.activeScenarioIds).toEqual(["base"]);
   });
 
-  it("expenses start with default inflation rate and 10 default categories", () => {
+  it("expenses start with copy toggle off and 10 default categories", () => {
     const e = useAppStore.getState().expenses;
-    expect(e.inflationRate).toBe(0.025);
+    expect(e.copyCurrentToRetirement).toBe(false);
     expect(e.categories.length).toBe(10);
     expect(e.currentAnnualSpending).toBe(0);
     expect(e.retirementAnnualSpending).toBe(0);
+  });
+
+  it("inflationRate lives on investmentAssumptions (single source of truth)", () => {
+    const a = useAppStore.getState().investmentAssumptions;
+    expect(a.inflationRate).toBe(0.025);
   });
 
   it("investmentAssumptions start with default return/volatility values", () => {
@@ -128,10 +133,37 @@ describe("useAppStore — expense actions", () => {
     expect(e.retirementAnnualSpending).toBe(50_000);
   });
 
-  it("updateExpenses patches inflationRate without touching categories", () => {
-    useAppStore.getState().updateExpenses({ inflationRate: 0.03 });
-    expect(useAppStore.getState().expenses.inflationRate).toBe(0.03);
+  it("updateAssumptions patches inflationRate (now lives on assumptions)", () => {
+    useAppStore.getState().updateAssumptions({ inflationRate: 0.03 });
+    expect(useAppStore.getState().investmentAssumptions.inflationRate).toBe(0.03);
     expect(useAppStore.getState().expenses.categories).toHaveLength(10);
+  });
+
+  it("turning copyCurrentToRetirement on mirrors current → retirement amounts", () => {
+    // Seed a non-trivial current amount, leaving retirement at 0
+    const cats = useAppStore.getState().expenses.categories.map((c) =>
+      c.id === "cat-housing" ? { ...c, currentAmount: 60_000, retirementAmount: 0 } : c
+    );
+    useAppStore.getState().updateExpenses({ categories: cats });
+    expect(useAppStore.getState().expenses.retirementAnnualSpending).toBe(0);
+
+    useAppStore.getState().updateExpenses({ copyCurrentToRetirement: true });
+    const e = useAppStore.getState().expenses;
+    expect(e.copyCurrentToRetirement).toBe(true);
+    expect(e.retirementAnnualSpending).toBe(60_000);
+    const housing = e.categories.find((c) => c.id === "cat-housing");
+    expect(housing?.retirementAmount).toBe(60_000);
+  });
+
+  it("with copyCurrentToRetirement on, editing currentAmount updates retirementAmount in lockstep", () => {
+    useAppStore.getState().updateExpenses({ copyCurrentToRetirement: true });
+    const cats = useAppStore.getState().expenses.categories.map((c) =>
+      c.id === "cat-food" ? { ...c, currentAmount: 18_000 } : c
+    );
+    useAppStore.getState().updateExpenses({ categories: cats });
+    const food = useAppStore.getState().expenses.categories.find((c) => c.id === "cat-food");
+    expect(food?.currentAmount).toBe(18_000);
+    expect(food?.retirementAmount).toBe(18_000);
   });
 });
 

@@ -34,7 +34,7 @@ function buildRows(projections: ReturnType<typeof useAppStore.getState>["results
 }
 
 export default function CashFlowView() {
-  const { results, expenses, ui, scenarios } = useAppStore();
+  const { results, investmentAssumptions, ui, scenarios } = useAppStore();
   const [displayMode, setDisplayMode] = useState<"nominal" | "real">("nominal");
   const [activeScenarioId, setActiveScenarioId] = useState<string | null>(null);
 
@@ -85,7 +85,7 @@ export default function CashFlowView() {
           <CashFlowTable
             projections={projections}
             displayMode={displayMode}
-            inflationRate={expenses.inflationRate}
+            inflationRate={investmentAssumptions.inflationRate}
           />
         </div>
       )}

@@ -309,7 +309,10 @@ function calculateAnnualExpenses(
 ): number {
   const { expenses, scenario } = input;
   const yearsElapsed = year - input.startYear;
-  const inflation = expenses.inflationRate;
+  // Single source of truth: inflation lives on InvestmentAssumptions.
+  // (Scenario allocationOverride may override it for what-if analysis.)
+  const inflation =
+    scenario?.allocationOverride?.inflationRate ?? input.investmentAssumptions.inflationRate;
 
   const retirementSpend = scenario?.annualSpendingOverride ?? expenses.retirementAnnualSpending;
   const baseToday = bothRetired ? retirementSpend : expenses.currentAnnualSpending;
