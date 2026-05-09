@@ -50,7 +50,8 @@ Organized as a tabbed form with five sections:
 **Tab 1: People & Timeline**
 - Spouse 1 name, birth year, current salary, target retirement age
 - Spouse 2 name, birth year, current salary, target retirement age
-- Children (read-only display, ages auto-calculated)
+- Child 1  name, birth year, age auto-calculated
+- Child 2  name, birth year, age auto-calculated
 - Planning end age (default: 95)
 
 **Tab 2: Accounts**
@@ -213,3 +214,6 @@ components/
 - Chart tooltips keyboard-accessible
 - Color is never the only conveyor of information (icons + text accompany all color coding)
 - WCAG 2.1 AA contrast ratios on all text
+
+## Changelog
+- 2026-05-08: Updated Inputs View section

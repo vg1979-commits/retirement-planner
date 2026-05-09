@@ -49,6 +49,19 @@ describe("useAppStore — household actions", () => {
     expect(after.name).toBe("Renamed");
     expect(after.updatedAt >= before).toBe(true);
   });
+
+  it("updateHousehold can edit a child's name and birth year", () => {
+    const before = useAppStore.getState().household.children;
+    const next = [...before];
+    next[0] = { ...next[0], name: "Alex", birthYear: 2012, currentAge: 2026 - 2012 };
+    useAppStore.getState().updateHousehold({ children: next });
+    const after = useAppStore.getState().household;
+    expect(after.children[0].name).toBe("Alex");
+    expect(after.children[0].birthYear).toBe(2012);
+    expect(after.children[0].currentAge).toBe(14);
+    // second child unchanged
+    expect(after.children[1].birthYear).toBe(before[1].birthYear);
+  });
 });
 
 describe("useAppStore — account actions", () => {

@@ -77,11 +77,40 @@ function PeopleTab() {
       ))}
 
       <SectionCard title="Children">
-        <div className="space-y-2">
+        <div className="space-y-5">
           {household.children.map((child, idx) => (
-            <div key={idx} className="flex items-center gap-3 text-sm text-slate-600">
-              <span className="font-medium w-20">{child.name}</span>
-              <span>Born {child.birthYear} · Age {currentYear - child.birthYear}</span>
+            <div key={idx}>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                    Child {idx + 1} Name
+                  </label>
+                  <input
+                    className="w-full px-3 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={child.name}
+                    onChange={(e) => {
+                      const next = [...household.children];
+                      next[idx] = { ...child, name: e.target.value };
+                      updateHousehold({ children: next });
+                    }}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Birth Year</label>
+                  <input
+                    type="number"
+                    className="w-full px-3 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={child.birthYear}
+                    onChange={(e) => {
+                      const birthYear = parseInt(e.target.value);
+                      const next = [...household.children];
+                      next[idx] = { ...child, birthYear, currentAge: currentYear - birthYear };
+                      updateHousehold({ children: next });
+                    }}
+                  />
+                </div>
+              </div>
+              <div className="mt-1.5 text-xs text-slate-400">Age {currentYear - child.birthYear}</div>
             </div>
           ))}
         </div>
