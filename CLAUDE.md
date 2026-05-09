@@ -157,4 +157,9 @@ Do not implement these — stub with placeholder UI if needed:
 - The Monte Carlo engine must run in a Web Worker (`engine/worker.ts`) — never block the main thread.
 - Tax brackets must be inflation-adjusted each projection year — hardcoded 2025 values in `constants.ts`, adjusted annually in the projector.
 - When in doubt about financial modeling details, refer to the relevant spec file rather than guessing.
-- Demo data should reflect the family profile above (high income, multiple account types, two spouses near peak earning years).
+- The app starts with a completely empty state. Do not pre-populate any accounts, income streams, balances, or salaries. The family profile above is context for understanding the user, not seed data.
+
+---
+
+## Changelog
+- 2026-05-08: Clarified that app starts with empty state — family profile is context only, not demo data

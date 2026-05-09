@@ -272,3 +272,24 @@ interface UIState {
   lastRunAt: string | null;
 }
 ```
+
+---
+
+## 9. Initial State
+
+The app starts with a completely empty state — no pre-filled demo data. All fields begin blank or at their minimum valid value. The Zustand store initializes with:
+
+- `household`: empty names, birth years and salaries set to 0
+- `accounts`: empty array
+- `incomeStreams`: empty array
+- `expenses`: all amounts 0, inflationRate defaulting to 0.025
+- `investmentAssumptions`: default return/volatility values only (no allocation pre-set)
+- `scenarios`: one empty baseline scenario ("Base Case") with no overrides
+- `results`: empty record
+
+The user must fill in all inputs before running a simulation. Empty-state UI (see Spec 04 §6) guides them through each section.
+
+---
+
+## Changelog
+- 2026-05-08: Added §9 Initial State — app starts empty, no pre-filled demo data

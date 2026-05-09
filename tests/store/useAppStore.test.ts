@@ -1,30 +1,29 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { useAppStore } from "../../src/store/useAppStore";
 
-// Each test starts from a fresh demo state.
+// Each test starts from a fresh empty state.
 beforeEach(() => {
-  useAppStore.getState().resetToDemo();
+  useAppStore.getState().resetToEmpty();
 });
 
 describe("useAppStore — initial state", () => {
-  it("loads demo household", () => {
+  it("starts with an empty household", () => {
     const s = useAppStore.getState();
-    expect(s.household.id).toBe("household-demo");
-    expect(s.household.children).toHaveLength(2);
+    expect(s.household.spouse1.name).toBe("");
+    expect(s.household.spouse1.birthYear).toBe(0);
+    expect(s.household.spouse2.name).toBe("");
+    expect(s.household.children).toHaveLength(0);
   });
 
-  it("loads demo accounts spanning multiple types", () => {
-    const accts = useAppStore.getState().accounts;
-    const types = new Set(accts.map((a) => a.type));
-    expect(types.has("traditional_401k")).toBe(true);
-    expect(types.has("roth_ira")).toBe(true);
-    expect(types.has("brokerage")).toBe(true);
-    expect(types.has("cash")).toBe(true);
-    expect(types.has("hsa")).toBe(true);
+  it("starts with no accounts", () => {
+    expect(useAppStore.getState().accounts).toHaveLength(0);
   });
 
-  it("loads demo scenarios", () => {
-    expect(useAppStore.getState().scenarios.length).toBeGreaterThanOrEqual(2);
+  it("starts with one baseline scenario", () => {
+    const scenarios = useAppStore.getState().scenarios;
+    expect(scenarios).toHaveLength(1);
+    expect(scenarios[0].id).toBe("base");
+    expect(scenarios[0].label).toBe("Base Case");
   });
 
   it("starts with no results and not simulating", () => {
@@ -33,9 +32,28 @@ describe("useAppStore — initial state", () => {
     expect(s.ui.isSimulating).toBe(false);
   });
 
-  it("activeScenarioIds defaults to all demo scenarios", () => {
+  it("activeScenarioIds defaults to the base scenario", () => {
     const s = useAppStore.getState();
-    expect(s.ui.activeScenarioIds).toHaveLength(s.scenarios.length);
+    expect(s.ui.activeScenarioIds).toEqual(["base"]);
+  });
+
+  it("expenses start at zero with default inflation rate", () => {
+    const e = useAppStore.getState().expenses;
+    expect(e.currentAnnualSpending).toBe(0);
+    expect(e.retirementAnnualSpending).toBe(0);
+    expect(e.inflationRate).toBe(0.025);
+  });
+
+  it("investmentAssumptions start with default return/volatility values", () => {
+    const a = useAppStore.getState().investmentAssumptions;
+    expect(a.equityMeanReturn).toBe(0.07);
+    expect(a.equityStdDev).toBe(0.15);
+    expect(a.bondMeanReturn).toBe(0.035);
+    expect(a.bondStdDev).toBe(0.06);
+    expect(a.cashReturn).toBe(0.045);
+    // Allocations are unset (all zero)
+    expect(a.preRetirementAllocation.equityPct).toBe(0);
+    expect(a.postRetirementAllocation.equityPct).toBe(0);
   });
 });
 
@@ -50,17 +68,15 @@ describe("useAppStore — household actions", () => {
     expect(after.updatedAt >= before).toBe(true);
   });
 
-  it("updateHousehold can edit a child's name and birth year", () => {
-    const before = useAppStore.getState().household.children;
-    const next = [...before];
-    next[0] = { ...next[0], name: "Alex", birthYear: 2012, currentAge: 2026 - 2012 };
-    useAppStore.getState().updateHousehold({ children: next });
+  it("updateHousehold can add and edit children", () => {
+    useAppStore.getState().updateHousehold({
+      children: [{ name: "Alex", birthYear: 2012, currentAge: 14 }],
+    });
     const after = useAppStore.getState().household;
+    expect(after.children).toHaveLength(1);
     expect(after.children[0].name).toBe("Alex");
     expect(after.children[0].birthYear).toBe(2012);
     expect(after.children[0].currentAge).toBe(14);
-    // second child unchanged
-    expect(after.children[1].birthYear).toBe(before[1].birthYear);
   });
 });
 
@@ -70,23 +86,34 @@ describe("useAppStore — account actions", () => {
       id: "new-acct", owner: "joint", type: "brokerage", label: "New", currentBalance: 50_000, annualContribution: 0,
     });
     const accts = useAppStore.getState().accounts;
+    expect(accts).toHaveLength(1);
     expect(accts.find((a) => a.id === "new-acct")).toBeDefined();
   });
 
   it("upsertAccount replaces an existing account", () => {
     useAppStore.getState().upsertAccount({
-      id: "401k-s1", owner: "spouse1", type: "traditional_401k", label: "Updated", currentBalance: 999_999, annualContribution: 23_500,
+      id: "acct-1", owner: "spouse1", type: "traditional_401k", label: "Original", currentBalance: 100_000, annualContribution: 23_500,
     });
-    const acct = useAppStore.getState().accounts.find((a) => a.id === "401k-s1");
-    expect(acct?.label).toBe("Updated");
-    expect(acct?.currentBalance).toBe(999_999);
+    useAppStore.getState().upsertAccount({
+      id: "acct-1", owner: "spouse1", type: "traditional_401k", label: "Updated", currentBalance: 999_999, annualContribution: 23_500,
+    });
+    const accts = useAppStore.getState().accounts;
+    expect(accts).toHaveLength(1);
+    expect(accts[0].label).toBe("Updated");
+    expect(accts[0].currentBalance).toBe(999_999);
   });
 
   it("removeAccount removes by id", () => {
-    const before = useAppStore.getState().accounts.length;
-    useAppStore.getState().removeAccount("401k-s1");
-    const after = useAppStore.getState().accounts.length;
-    expect(after).toBe(before - 1);
+    useAppStore.getState().upsertAccount({
+      id: "acct-1", owner: "joint", type: "brokerage", label: "A", currentBalance: 0, annualContribution: 0,
+    });
+    useAppStore.getState().upsertAccount({
+      id: "acct-2", owner: "joint", type: "cash", label: "B", currentBalance: 0, annualContribution: 0,
+    });
+    useAppStore.getState().removeAccount("acct-1");
+    const accts = useAppStore.getState().accounts;
+    expect(accts).toHaveLength(1);
+    expect(accts[0].id).toBe("acct-2");
   });
 });
 
@@ -103,8 +130,9 @@ describe("useAppStore — scenario actions", () => {
   });
 
   it("setActiveScenarios replaces the active list", () => {
-    useAppStore.getState().setActiveScenarios(["base"]);
-    expect(useAppStore.getState().ui.activeScenarioIds).toEqual(["base"]);
+    useAppStore.getState().upsertScenario({ id: "alt", label: "Alt", color: "#dc2626" });
+    useAppStore.getState().setActiveScenarios(["base", "alt"]);
+    expect(useAppStore.getState().ui.activeScenarioIds).toEqual(["base", "alt"]);
   });
 });
 
@@ -117,13 +145,14 @@ describe("useAppStore — UI actions", () => {
 
 describe("useAppStore — simulation lifecycle", () => {
   it("populates results and clears isSimulating after run", async () => {
+    // Add a valid scenario and minimal state so the engine can run
     await useAppStore.getState().runSimulations(20);
     const s = useAppStore.getState();
     expect(s.ui.isSimulating).toBe(false);
     expect(s.ui.lastRunAt).not.toBeNull();
     expect(s.simulationProgress).toBe(1);
 
-    // One result per demo scenario, keyed by scenarioId
+    // One result per scenario, keyed by scenarioId
     for (const scenario of s.scenarios) {
       expect(s.results[scenario.id]).toBeDefined();
       expect(s.results[scenario.id].numSimulations).toBe(20);
@@ -146,10 +175,17 @@ describe("useAppStore — simulation lifecycle", () => {
   });
 });
 
-describe("useAppStore — resetToDemo", () => {
-  it("restores demo data after edits", () => {
-    useAppStore.getState().removeAccount("401k-s1");
-    useAppStore.getState().resetToDemo();
-    expect(useAppStore.getState().accounts.find((a) => a.id === "401k-s1")).toBeDefined();
+describe("useAppStore — resetToEmpty", () => {
+  it("restores empty state after edits", () => {
+    useAppStore.getState().upsertAccount({
+      id: "acct-1", owner: "joint", type: "brokerage", label: "Test", currentBalance: 50_000, annualContribution: 0,
+    });
+    useAppStore.getState().updateHousehold({ name: "My Family" });
+    useAppStore.getState().resetToEmpty();
+    const s = useAppStore.getState();
+    expect(s.accounts).toHaveLength(0);
+    expect(s.household.name).toBe("");
+    expect(s.scenarios).toHaveLength(1);
+    expect(s.scenarios[0].id).toBe("base");
   });
 });
