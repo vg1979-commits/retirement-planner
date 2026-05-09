@@ -23,6 +23,17 @@ import { annual401kLimit, annualIraLimit, annualHsaLimit } from "./taxEngine";
 const BROKERAGE_DIVIDEND_YIELD = 0.018; // ~S&P 500 dividend yield
 const CASH_INTEREST_TAXABLE = true;
 
+// Account types whose withdrawals count as ordinary income (pre-tax money)
+const ORDINARY_INCOME_WITHDRAWAL_TYPES = new Set<AccountType>([
+  "traditional_401k",
+  "traditional_ira",
+  "deferred_comp",
+  "pension",
+]);
+
+// Account types whose withdrawals are realised as long-term capital gains
+const LTCG_WITHDRAWAL_TYPES = new Set<AccountType>(["brokerage"]);
+
 // ─── Public input/output ──────────────────────────────────────────────────────
 
 export interface ProjectorInput {
@@ -307,6 +318,15 @@ export function projectScenario(input: ProjectorInput): ProjectorOutput {
 
   let depleted = false;
 
+  // Identify older spouse once (used for RMD age calculation each year)
+  const olderSpouse =
+    input.household.spouse1.birthYear <= input.household.spouse2.birthYear
+      ? input.household.spouse1
+      : input.household.spouse2;
+
+  // Build accountId → type lookup from the initial balances array (types never change)
+  const acctTypeById = new Map(balances.map((b) => [b.accountId, b.type]));
+
   for (let year = input.startYear; year <= endYear; year++) {
     const yearIdx = year - input.startYear;
     const portfolioStart = balances.reduce((s, b) => s + b.balance, 0);
@@ -318,7 +338,7 @@ export function projectScenario(input: ProjectorInput): ProjectorOutput {
       .filter((b) => b.type === "cash")
       .reduce((s, b) => s + b.balance, 0);
 
-    // 1. Income
+    // 1. Income (W2 salaries, RSUs, dividends, cash interest — no withdrawals yet)
     const income = calculateIncome(input, year, brokerageBalance, cashBalance);
     const earnedIncome = income.ordinaryIncome - cashBalance * assumptions.cashReturn;
     const investmentIncome = income.netInvestmentIncome;
@@ -329,65 +349,107 @@ export function projectScenario(input: ProjectorInput): ProjectorOutput {
     );
     applyContributions(balances, contribs.perAccount, input.accounts);
 
-    // 3. Tax
-    const taxableOrdinary = Math.max(0, income.ordinaryIncome - contribs.preTaxReduction);
-    const taxSnapshot = calculateTax({
-      year,
-      inflationRate: assumptions.inflationRate,
-      ordinaryIncome: taxableOrdinary,
-      longTermCapitalGains: income.ltcg,
-      qualifiedDividends: income.qualifiedDividends,
-      netInvestmentIncome: income.netInvestmentIncome,
-    });
-
-    // 4. Expenses
+    // 3. Expenses
     const bothRetired = !income.spouse1Working && !income.spouse2Working;
     const totalExpenses = calculateAnnualExpenses(input, year, bothRetired);
 
-    // 5. Net cash flow
-    const afterTaxIncome = income.ordinaryIncome - taxSnapshot.totalFederalTax;
-    const cashAvailable = afterTaxIncome - contribs.totalContributions;
-    const netCashFlow = cashAvailable - totalExpenses;
+    // 4. First-pass withdrawals — cover the gross cash shortfall before knowing
+    //    the exact tax on those withdrawals (tax is unknown until we know the
+    //    withdrawal mix, which is unknown until we run the strategy).
+    //
+    //    Gross shortfall = how much portfolio cash we need before taxes:
+    //      expenses + contributions − income (we'll top-up for taxes in step 6)
+    const baseOrdinary = Math.max(0, income.ordinaryIncome - contribs.preTaxReduction);
+    const grossShortfall = Math.max(
+      0,
+      totalExpenses + contribs.totalContributions - income.ordinaryIncome
+    );
 
-    let withdrawalBreakdown: { accountId: string; amount: number }[] = [];
+    const withdrawalBreakdown: { accountId: string; amount: number }[] = [];
     let totalWithdrawn = 0;
+    let excessRmdTotal = 0;
 
-    if (netCashFlow >= 0) {
-      applySurplus(balances, netCashFlow);
-    } else {
-      // Need = expense shortfall
-      const need = -netCashFlow;
+    // Helper: run the withdrawal engine against the live balances array.
+    function runWithdrawals(need: number, currentIncome: number): void {
+      if (need <= 0) return;
       const result = executeWithdrawals({
         accounts: balances,
         amountNeeded: need,
-        olderSpouseAge: age(
-          input.household.spouse1.birthYear < input.household.spouse2.birthYear
-            ? input.household.spouse1
-            : input.household.spouse2,
-          year
-        ),
+        olderSpouseAge: age(olderSpouse, year),
         bothRetired,
-        currentOrdinaryIncome: taxableOrdinary,
+        currentOrdinaryIncome: currentIncome,
         year,
         inflationRate: assumptions.inflationRate,
         annualExpenses: totalExpenses,
       });
-
-      withdrawalBreakdown = result.breakdown;
-      totalWithdrawn = result.totalWithdrawn;
-
-      // Apply mutated balances
+      withdrawalBreakdown.push(...result.breakdown);
+      totalWithdrawn += result.totalWithdrawn;
+      excessRmdTotal += result.excessRmdReinvested;
       for (let i = 0; i < balances.length; i++) {
         balances[i].balance = result.updatedBalances[i].balance;
       }
-
-      // Reinvest excess RMDs
-      applySurplus(balances, result.excessRmdReinvested);
-
       if (result.portfolioDepleted) depleted = true;
     }
 
-    // 6. Apply investment returns
+    runWithdrawals(grossShortfall, baseOrdinary);
+
+    // 5. Classify withdrawals by tax treatment so we can compute the real tax.
+    //    • Traditional 401k / IRA / deferred comp / pension → ordinary income
+    //    • Brokerage → long-term capital gains (v1 simplification)
+    //    • Cash, Roth, HSA → not additional taxable income
+    let withdrawalOrdinary = 0;
+    let withdrawalLTCG = 0;
+    for (const w of withdrawalBreakdown) {
+      const type = acctTypeById.get(w.accountId);
+      if (type && ORDINARY_INCOME_WITHDRAWAL_TYPES.has(type)) {
+        withdrawalOrdinary += w.amount;
+      } else if (type && LTCG_WITHDRAWAL_TYPES.has(type)) {
+        withdrawalLTCG += w.amount;
+      }
+    }
+
+    // 6. Tax — now computed on the complete income picture including withdrawals.
+    //    This is the fix: previously calculateTax() only saw W2/investment income
+    //    and returned zero for post-retirement years where all cash came from the
+    //    portfolio.
+    const taxableOrdinary = baseOrdinary + withdrawalOrdinary;
+    const taxableLTCG = income.ltcg + withdrawalLTCG;
+    const taxSnapshot = calculateTax({
+      year,
+      inflationRate: assumptions.inflationRate,
+      ordinaryIncome: taxableOrdinary,
+      longTermCapitalGains: taxableLTCG,
+      qualifiedDividends: income.qualifiedDividends,
+      netInvestmentIncome: income.netInvestmentIncome + withdrawalLTCG,
+    });
+
+    // 7. Net cash flow check.
+    //    The gross shortfall didn't include taxes; if the tax bill is larger than
+    //    zero we need a supplemental withdrawal to cover it.
+    //
+    //    Cash in:  income.ordinaryIncome  (W2 + interest, received as cash)
+    //            + totalWithdrawn         (cash from portfolio accounts)
+    //    Cash out: taxes + contributions + expenses
+    const netFlow =
+      income.ordinaryIncome +
+      totalWithdrawn -
+      taxSnapshot.totalFederalTax -
+      contribs.totalContributions -
+      totalExpenses;
+
+    if (netFlow >= 0) {
+      // Surplus — park in brokerage
+      applySurplus(balances, netFlow);
+    } else {
+      // Taxes consumed more than the initial withdrawal covered.
+      // Pull just enough extra to settle the bill; don't iterate taxes again.
+      runWithdrawals(-netFlow, taxableOrdinary);
+    }
+
+    // Reinvest excess RMDs (mandatory withdrawals beyond current-year need)
+    applySurplus(balances, excessRmdTotal);
+
+    // 8. Apply investment returns
     const allocation = effectiveAllocation(assumptions, bothRetired);
     const returns = input.run.returns[Math.min(yearIdx, input.run.returns.length - 1)];
     applyReturns(balances, returns, allocation);
