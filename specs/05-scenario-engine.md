@@ -1,0 +1,148 @@
+# Spec 05 — Scenario Engine
+
+## 1. Purpose
+
+The scenario engine allows the user to compare multiple "what-if" plans side by side without duplicating all their input data. A scenario is a named set of **overrides** applied on top of the base household plan.
+
+---
+
+## 2. Scenario Model (see also Spec 01 §6)
+
+```typescript
+interface Scenario {
+  id: string;
+  label: string;
+  color: string;               // hex, auto-assigned from palette
+  isBaseline: boolean;         // exactly one scenario is the baseline
+
+  overrides: ScenarioOverrides;
+}
+
+interface ScenarioOverrides {
+  // Retirement timing
+  retirementAge?: {
+    spouse1?: number;
+    spouse2?: number;
+  };
+
+  // Spending
+  annualRetirementSpending?: number;   // today's dollars
+
+  // Allocation
+  postRetirementAllocation?: AssetAllocation;
+
+  // One-time cash events
+  oneTimeEvents?: OneTimeEvent[];
+
+  // Return assumptions (for stress-testing)
+  equityMeanReturn?: number;
+  equityStdDev?: number;
+}
+
+interface OneTimeEvent {
+  id: string;
+  label: string;           // e.g. "Beach house", "Kids' weddings"
+  year: number;
+  amount: number;          // positive = expense, negative = windfall (inheritance, etc.)
+}
+```
+
+---
+
+## 3. Baseline Scenario
+
+- There is always exactly one **baseline scenario**, created automatically from the household inputs
+- Deleting the baseline is not allowed; it can only be edited
+- Label: "Base Case" (editable)
+- Baseline always shown in a neutral color (gray/slate)
+
+---
+
+## 4. Suggested Starter Scenarios
+
+When the user first runs the app (or clicks "Add starter scenarios"), offer to auto-create:
+
+| Label | Overrides |
+|---|---|
+| Retire 3 years earlier | Both spouses retire 3 years before base case |
+| Retire 3 years later | Both spouses retire 3 years after base case |
+| Spend 20% more | Annual retirement spending × 1.20 |
+| Spend 20% less | Annual retirement spending × 0.80 |
+| Conservative market | equityMeanReturn × 0.75, equityStdDev × 1.20 |
+| One-time large expense | Prompt for label, year, amount |
+
+---
+
+## 5. Scenario Execution
+
+When `runSimulations(state)` is called:
+1. For each scenario, merge `overrides` onto the base household plan using a deep-merge function
+2. Run the full Monte Carlo engine (Spec 02) on the merged plan
+3. Return one `SimulationResult` per scenario
+
+The merge function applies overrides shallowly at the scenario level but deeply for nested objects (e.g. allocation).
+
+```typescript
+function mergeScenario(base: HouseholdPlan, scenario: Scenario): HouseholdPlan {
+  return {
+    ...base,
+    retirement: {
+      spouse1Age: scenario.overrides.retirementAge?.spouse1 ?? base.retirement.spouse1Age,
+      spouse2Age: scenario.overrides.retirementAge?.spouse2 ?? base.retirement.spouse2Age,
+    },
+    expenses: {
+      ...base.expenses,
+      retirementAnnualSpending:
+        scenario.overrides.annualRetirementSpending ?? base.expenses.retirementAnnualSpending,
+    },
+    investmentAssumptions: {
+      ...base.investmentAssumptions,
+      ...(scenario.overrides.postRetirementAllocation
+        ? { postRetirementAllocation: scenario.overrides.postRetirementAllocation }
+        : {}),
+      ...(scenario.overrides.equityMeanReturn !== undefined
+        ? { equityMeanReturn: scenario.overrides.equityMeanReturn }
+        : {}),
+    },
+    oneTimeEvents: [...(base.oneTimeEvents ?? []), ...(scenario.overrides.oneTimeEvents ?? [])],
+  };
+}
+```
+
+---
+
+## 6. Scenario Persistence
+
+- All scenarios are persisted to `localStorage` (key: `retirement-planner-state`)
+- State is serialized as JSON on every change (debounced 500ms)
+- On load, restore from `localStorage` if present; otherwise load demo data
+- Export / Import: user can download state as a `.json` file and reload it later
+
+---
+
+## 7. Scenario Comparison UI (see Spec 04 §3.5 for layout)
+
+The comparison view shows all selected scenarios overlaid on the same chart. Key behaviors:
+
+- Maximum **5 scenarios** shown simultaneously (UI becomes too cluttered beyond this)
+- Scenarios can be toggled on/off without deleting them
+- Success rate table at the bottom compares all scenarios in a grid:
+
+```
+             Base Case   Early Retire   Spend More   Conservative
+Success Rate   89%           76%           81%           72%
+Retire Age     58/57         55/54         58/57         58/57
+Annual $       $180k         $180k         $216k         $180k
+```
+
+---
+
+## 8. Scenario Insights (Optional Enhancement)
+
+After running, the engine can generate natural-language insights:
+
+- "Retiring 3 years earlier reduces your success rate from 89% to 76%. The main driver is 3 fewer years of contributions and 3 more years of withdrawals."
+- "Increasing spending by 20% ($36k/year more) costs you 8 percentage points of success rate."
+- "The conservative market scenario shows your portfolio running out at age 84 in the median case."
+
+These are generated by comparing `SimulationResult` objects and applying threshold-based rules. No AI/LLM required in v1.
