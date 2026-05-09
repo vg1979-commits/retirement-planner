@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Download, AlertTriangle } from "lucide-react";
 import { useAppStore } from "../store/useAppStore";
 import TaxBarChart from "../components/charts/TaxBarChart";
@@ -9,7 +9,7 @@ const fmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
 // ─── Roth Planner sub-tab ─────────────────────────────────────────────────────
 
 function exportRothCSV(rows: AnnualProjection[]) {
-  const header = "Year,Age S1,Age S2,Traditional Balance,RMD,Conversion Amount,Tax Cost,Marginal Rate,Rationale,IRMAA\n";
+  const header = "Year,Age S1,Age S2,Traditional Balance,RMD,Conversion Amount,Tax Cost,Marginal Rate,Rationale,IRMAA,Pull-Forward\n";
   const body = rows.map((p) => [
     p.year,
     p.age_spouse1,
@@ -21,6 +21,7 @@ function exportRothCSV(rows: AnnualProjection[]) {
     `${(p.marginalRate * 100).toFixed(0)}%`,
     `"${(p.conversionRationale ?? "").replace(/"/g, '""')}"`,
     p.irmaaWarning ? "Yes" : "",
+    p.isPullForward ? "Yes" : "",
   ].join(",")).join("\n");
   const blob = new Blob([header + body], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
@@ -41,6 +42,7 @@ interface RothPlannerProps {
     conversionWindowEnd: number | null;
     traditionalBalanceAtRMDAge: number;
     narrativeSummary: string;
+    pullForwardYearCount: number;
   };
   onUpdate: (patch: Partial<Pick<Scenario, "enableRothOptimizer" | "rothConversionTargetBracket">>) => void;
 }
@@ -120,6 +122,17 @@ function RothPlanner({ scenario, projections, summary, onUpdate }: RothPlannerPr
             </div>
           </div>
         </div>
+
+        {/* Spec 04 §3.4: amber early-window callout, shown only when pull-forward years exist. */}
+        {summary.pullForwardYearCount > 0 && (
+          <div className="mb-3 px-3 py-2 rounded-md bg-amber-100 border border-amber-300 text-amber-900 text-sm flex items-start gap-2">
+            <span aria-hidden>⭐</span>
+            <span>
+              Includes <span className="font-semibold">{summary.pullForwardYearCount}</span> high-priority early conversion year{summary.pullForwardYearCount === 1 ? "" : "s"} (ages 55–59½) where your marginal rate drops below the target bracket.
+            </span>
+          </div>
+        )}
+
         <p className="text-sm text-slate-700 leading-relaxed">{summary.narrativeSummary}</p>
       </div>
 
@@ -148,36 +161,56 @@ function RothPlanner({ scenario, projections, summary, onUpdate }: RothPlannerPr
               <tbody className="divide-y divide-slate-100">
                 {planningRows.map((p) => {
                   const hasConversion = p.rothConversionAmount > 0;
+                  // Spec 04 §3.4: pull-forward rows get amber highlight (overrides the
+                  // standard blue conversion tint). Inline penalty note appears under
+                  // any conversion row where either spouse is still under 59½.
+                  const anySpouseUnder60 = p.age_spouse1 < 60 || p.age_spouse2 < 60;
+                  const showPenaltyNote = hasConversion && anySpouseUnder60;
+                  const rowClass = p.isPullForward
+                    ? "bg-amber-50 hover:bg-amber-100/60"
+                    : hasConversion
+                      ? "bg-blue-50/30 hover:bg-blue-50/60"
+                      : "hover:bg-slate-50";
                   return (
-                    <tr key={p.year} className={hasConversion ? "bg-blue-50/30 hover:bg-blue-50/60" : "hover:bg-slate-50"}>
-                      <td className="px-3 py-2 font-medium text-slate-800">{p.year}</td>
-                      <td className="px-3 py-2 text-slate-500">{p.age_spouse1}/{p.age_spouse2}</td>
-                      <td className="px-3 py-2 text-right font-mono text-slate-700">
-                        {fmt.format(p.traditionalBalanceStart)}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono text-slate-600">
-                        {p.rmdAmount > 0 ? fmt.format(p.rmdAmount) : <span className="text-slate-300">—</span>}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono text-blue-700 font-medium">
-                        {hasConversion ? fmt.format(p.rothConversionAmount) : <span className="text-slate-300">—</span>}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono text-red-600">
-                        {p.rothConversionTaxCost > 0 ? fmt.format(p.rothConversionTaxCost) : <span className="text-slate-300">—</span>}
-                      </td>
-                      <td className="px-3 py-2 text-right text-slate-600">
-                        {(p.marginalRate * 100).toFixed(0)}%
-                      </td>
-                      <td className="px-3 py-2 text-slate-600 text-xs">
-                        {p.conversionRationale ?? <span className="text-slate-300">—</span>}
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        {p.irmaaWarning && (
-                          <span title="MAGI exceeds IRMAA threshold — Medicare premium surcharges apply" className="inline-flex items-center text-amber-600">
-                            <AlertTriangle size={14} />
-                          </span>
-                        )}
-                      </td>
-                    </tr>
+                    <Fragment key={p.year}>
+                      <tr className={rowClass}>
+                        <td className="px-3 py-2 font-medium text-slate-800">{p.year}</td>
+                        <td className="px-3 py-2 text-slate-500">{p.age_spouse1}/{p.age_spouse2}</td>
+                        <td className="px-3 py-2 text-right font-mono text-slate-700">
+                          {fmt.format(p.traditionalBalanceStart)}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono text-slate-600">
+                          {p.rmdAmount > 0 ? fmt.format(p.rmdAmount) : <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono text-blue-700 font-medium">
+                          {hasConversion ? fmt.format(p.rothConversionAmount) : <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono text-red-600">
+                          {p.rothConversionTaxCost > 0 ? fmt.format(p.rothConversionTaxCost) : <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="px-3 py-2 text-right text-slate-600">
+                          {(p.marginalRate * 100).toFixed(0)}%
+                        </td>
+                        <td className={`px-3 py-2 text-xs ${p.isPullForward ? "text-amber-900 font-medium" : "text-slate-600"}`}>
+                          {p.conversionRationale ?? <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          {p.irmaaWarning && (
+                            <span title="MAGI exceeds IRMAA threshold — Medicare premium surcharges apply" className="inline-flex items-center text-amber-600">
+                              <AlertTriangle size={14} />
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                      {showPenaltyNote && (
+                        <tr className={p.isPullForward ? "bg-amber-50/40" : "bg-slate-50/60"}>
+                          <td></td>
+                          <td colSpan={8} className="px-3 pb-2 text-xs text-amber-800 italic">
+                            Pay tax on this conversion from taxable funds — withdrawing from traditional accounts to cover the tax bill before age 59½ triggers a 10% penalty.
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   );
                 })}
               </tbody>

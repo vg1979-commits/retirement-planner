@@ -177,3 +177,5 @@ Do not implement these — stub with placeholder UI if needed:
 - 2026-05-09T20:12:00Z: Spec 04 §3.4 Roth Conversion Planner fully built out — optimizer toggle, target bracket selector, summary bar with estimated tax savings headline and plain-language rationale, detailed year-by-year table
 - 2026-05-09T20:12:00Z: Spec 03 §6.5 updated — RothConversionSummary type added; estimatedTaxSavings computed by diffing lifetime tax with vs. without conversions on median path
 - 2026-05-09T20:12:00Z: Spec 01 updated — RothConversionSummary type added in §8a; SimulationResult gains rothConversionSummary field; TaxSnapshot gains conversionRationale field
+- 2026-05-09T20:56:02Z: Spec 03 §6.2a added — early retirement pull-forward logic for ages 55–59½; triggers when marginal rate < target bracket; early withdrawal penalty distinction and tax payment sourcing rules specified
+- 2026-05-09T20:56:02Z: Spec 04 §3.4 updated — pull-forward years highlighted amber with ⭐; early window callout in summary bar; inline pre-59½ penalty warning in table

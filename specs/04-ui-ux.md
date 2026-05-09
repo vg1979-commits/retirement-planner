@@ -169,12 +169,14 @@ A highlighted summary block showing:
 - **Estimated Tax Savings from Conversion Strategy: $XX** — total tax saved vs. a no-conversion baseline, computed as: (total lifetime tax without conversions) − (total lifetime tax with conversions) across the median Monte Carlo run
 - **Total Converted: $XX** — cumulative dollars moved to Roth across all conversion years
 - **Conversion Window: YYYY–YYYY** — first and last year a conversion is recommended
+- **Early window callout** (shown only if pull-forward years exist): *"Includes X high-priority early conversion years (ages 55–59½) where your marginal rate drops below the target bracket."* — highlighted in a distinct color (e.g. amber) to draw attention
 - **Plain-language rationale** — 2–3 sentences explaining the recommendation in plain English, generated from the `conversionRationale` fields, e.g.: *"You have a 12-year window between retirement and RMDs where your marginal rate drops from 35% to 22%. Converting $45,000–$60,000 per year during this window is projected to save approximately $180,000 in lifetime taxes. After age 73, RMDs consume most of the bracket headroom, limiting further conversions."*
 
 *Year-by-year table*
 
 | Year | Age | Traditional Balance | RMD | Conversion Amount | Tax Cost | Marginal Rate | Rationale | IRMAA |
 |---|---|---|---|---|---|---|---|---|
+| 2028 | 55/54 | $2,100,000 | — | $58,000 | $6,960 | 12% | ⭐ Early window: 12% < 22% target | — |
 | 2031 | 58/57 | $1,840,000 | — | $52,400 | $11,528 | 22% | Filled 22% bracket | — |
 | 2032 | 59/58 | $1,810,000 | — | $54,100 | $11,902 | 22% | Filled 22% bracket | — |
 | 2044 | 73/72 | $980,000 | $38,200 | $14,100 | $3,102 | 22% | Partial — RMD used most of bracket | ⚠️ |
@@ -187,8 +189,11 @@ Column definitions:
 - **Conversion Amount** — amount the optimizer recommends converting; $0 if optimizer is off or no headroom
 - **Tax Cost** — marginal federal tax owed on the conversion amount
 - **Marginal Rate** — effective marginal rate at which the conversion is taxed
-- **Rationale** — plain-language note from `conversionRationale` (e.g. "Filled 22% bracket", "Partial — RMD used most of bracket", "No headroom — RMD fills bracket")
+- **Rationale** — plain-language note from `conversionRationale`; pull-forward years are marked with ⭐ and show current vs. target rate (e.g. "⭐ Early window: 12% < 22% target"); rows in the 55–59½ window are row-highlighted in amber
 - **IRMAA** — ⚠️ warning icon if the conversion pushes MAGI above the IRMAA threshold ($212,000 MFJ); blank otherwise
+
+*Inline note for pull-forward years (55–59½)*
+Any row where the spouse is under 59½ shows an inline note below the row: *"Pay tax on this conversion from taxable funds — withdrawing from traditional accounts to cover the tax bill before age 59½ triggers a 10% penalty."*
 
 *Footer*
 - "Without conversion strategy, estimated traditional balance at age 73: $X" — shows the RMD tax bomb risk if conversions are skipped
@@ -369,3 +374,4 @@ Users can persist their entire plan to a local file and reload it later — no a
 - 2026-05-09T16:19:58Z: §9 clarified — Save and Import explicitly cover all scenario data including one-time expenses
 - 2026-05-09T16:27:57Z: Tab 4 redesigned — unified side-by-side table for current and retirement spending; copy toggle added; inflation rate moved to Tab 5 Assumptions
 - 2026-05-09T20:12:00Z: §3.4 Roth Conversion Planner fully specified — optimizer toggle, target bracket selector, summary bar with estimated tax savings and plain-language rationale, detailed year-by-year table with RMD, rationale, and IRMAA columns, footer with RMD tax bomb indicator
+- 2026-05-09T20:56:02Z: §3.4 updated — pull-forward years (55–59½) highlighted in amber with ⭐ rationale; early window callout added to summary bar; inline penalty warning added for pre-59½ rows

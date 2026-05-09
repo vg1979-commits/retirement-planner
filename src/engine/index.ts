@@ -78,7 +78,8 @@ function buildNarrative(
   windowEnd: number | null,
   optimizerEnabled: boolean,
   hasTraditional: boolean,
-  traditionalBalanceAtRMDAge: number
+  traditionalBalanceAtRMDAge: number,
+  pullForwardYearCount: number
 ): string {
   if (!optimizerEnabled) {
     return "Roth conversion optimizer is disabled. Enable it to model converting traditional balances to Roth during your retirement window.";
@@ -99,7 +100,11 @@ function buildNarrative(
   const bombClause = traditionalBalanceAtRMDAge > 2_000_000
     ? ` Without conversions, your traditional balance is projected to reach ${fmt(traditionalBalanceAtRMDAge)} at age 73 — large RMDs may push you into a higher bracket.`
     : "";
-  return `Converting ${fmt(totalConverted)} across ${windowYears} year${windowYears === 1 ? "" : "s"} (${windowStart}–${windowEnd}) is recommended.${savingsClause}${bombClause}`;
+  // Spec 04 §3.4: surface the early-window callout in the narrative when present.
+  const pullForwardClause = pullForwardYearCount > 0
+    ? ` Includes ${pullForwardYearCount} high-priority early conversion year${pullForwardYearCount === 1 ? "" : "s"} (ages 55–59½) where your marginal rate drops below the target bracket.`
+    : "";
+  return `Converting ${fmt(totalConverted)} across ${windowYears} year${windowYears === 1 ? "" : "s"} (${windowStart}–${windowEnd}) is recommended.${savingsClause}${pullForwardClause}${bombClause}`;
 }
 
 function computeRothSummary(
@@ -114,15 +119,18 @@ function computeRothSummary(
 ): RothConversionSummary {
   const optimizerEnabled = scenario.enableRothOptimizer ?? true;
 
-  // Sum conversions / find conversion window from the median path.
+  // Sum conversions / find conversion window / count pull-forward years
+  // from the median path.
   let totalConverted = 0;
   let windowStart: number | null = null;
   let windowEnd: number | null = null;
+  let pullForwardYearCount = 0;
   for (const p of medianProjections) {
     if (p.rothConversionAmount > 0) {
       totalConverted += p.rothConversionAmount;
       if (windowStart === null) windowStart = p.year;
       windowEnd = p.year;
+      if (p.isPullForward) pullForwardYearCount++;
     }
   }
 
@@ -157,6 +165,7 @@ function computeRothSummary(
     conversionWindowStart: windowStart,
     conversionWindowEnd: windowEnd,
     traditionalBalanceAtRMDAge: Math.round(baseline.traditionalBalanceAtRMDAge),
+    pullForwardYearCount,
     narrativeSummary: buildNarrative(
       totalConverted,
       estimatedTaxSavings,
@@ -164,7 +173,8 @@ function computeRothSummary(
       windowEnd,
       optimizerEnabled,
       hasTraditional,
-      baseline.traditionalBalanceAtRMDAge
+      baseline.traditionalBalanceAtRMDAge,
+      pullForwardYearCount
     ),
   };
 }

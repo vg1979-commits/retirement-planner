@@ -200,6 +200,9 @@ export interface AnnualProjection {
   rothConversionTaxCost: number;
   conversionRationale?: string;            // plain-English explanation
   irmaaWarning: boolean;                   // conversion pushed MAGI over IRMAA threshold
+  /** Spec 03 §6.2a: at least one spouse is 55–59½ AND current marginal rate <
+   *  target bracket. Drives amber row highlighting in the Tax View. */
+  isPullForward: boolean;
 }
 
 // ─── Roth Conversion Summary (Spec 01 §8a) ───────────────────────────────────
@@ -213,6 +216,10 @@ export interface RothConversionSummary {
   conversionWindowEnd: number | null;      // last year a conversion happened (null if none)
   traditionalBalanceAtRMDAge: number;      // projected traditional balance at age 73 in the no-conversion baseline
   narrativeSummary: string;                // 2–3 sentence plain-English explanation for the UI summary bar
+  /** Spec 03 §6.2a / Spec 04 §3.4: count of years flagged as early-window
+   *  pull-forward (ages 55–59½ with sub-target marginal rate). Drives the
+   *  amber early-window callout in the summary bar. */
+  pullForwardYearCount: number;
 }
 
 // ─── Tax Snapshot ─────────────────────────────────────────────────────────────

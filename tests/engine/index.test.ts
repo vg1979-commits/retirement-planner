@@ -210,11 +210,55 @@ describe("runSimulations — rothConversionSummary", () => {
       expect(typeof p.traditionalBalanceStart).toBe("number");
       expect(typeof p.marginalRate).toBe("number");
       expect(typeof p.irmaaWarning).toBe("boolean");
+      expect(typeof p.isPullForward).toBe("boolean");
     }
     // At least one post-retirement year should carry a rationale string when
     // the optimizer is on.
     const hasRationale = proj.some((p) => typeof p.conversionRationale === "string" && p.conversionRationale.length > 0);
     expect(hasRationale).toBe(true);
+  });
+
+  it("§6.2a — early retirement at 55 produces pull-forward years in the summary", () => {
+    // Make both spouses retire at 55; with low post-retirement income their
+    // marginal rate during ages 55–59 will sit below the 22% target → pull-forward.
+    const earlyRetireState = makeState({
+      household: {
+        id: "h1",
+        name: "Early Retire Family",
+        createdAt: "2026-01-01",
+        updatedAt: "2026-01-01",
+        spouse1: { name: "S1", birthYear: 1971, currentAge: 55, targetRetirementAge: 55, currentAnnualIncome: 0 },
+        spouse2: { name: "S2", birthYear: 1972, currentAge: 54, targetRetirementAge: 55, currentAnnualIncome: 0 },
+        children: [],
+        planningHorizon: { endAge: 95 },
+      },
+      // Big traditional balances + plenty of taxable funds so the funding
+      // constraint doesn't shrink anything.
+      accounts: [
+        { id: "cash1", owner: "joint", type: "cash", label: "Cash", currentBalance: 200_000, annualContribution: 0 },
+        { id: "brok1", owner: "joint", type: "brokerage", label: "Brokerage", currentBalance: 2_500_000, annualContribution: 0 },
+        { id: "401k1", owner: "spouse1", type: "traditional_401k", label: "S1 401k", currentBalance: 1_500_000, annualContribution: 0 },
+        { id: "401k2", owner: "spouse2", type: "traditional_401k", label: "S2 401k", currentBalance: 1_500_000, annualContribution: 0 },
+        { id: "roth1", owner: "spouse1", type: "roth_ira", label: "Roth", currentBalance: 100_000, annualContribution: 0 },
+      ],
+      incomeStreams: [],
+      expenses: { currentAnnualSpending: 100_000, retirementAnnualSpending: 100_000, copyCurrentToRetirement: false, categories: [] },
+    });
+
+    const results = runSimulations(earlyRetireState, { numSimulations: 30, startYear: 2026, baseSeed: 7 });
+    const s = results[0].rothConversionSummary;
+    expect(s.pullForwardYearCount).toBeGreaterThan(0);
+    expect(s.narrativeSummary).toMatch(/early conversion year/i);
+
+    // Every year flagged as pull-forward must have a conversion and ages 55–59.
+    const pf = results[0].annualProjections.filter((p) => p.isPullForward);
+    expect(pf.length).toBeGreaterThan(0);
+    for (const p of pf) {
+      expect(p.rothConversionAmount).toBeGreaterThan(0);
+      const anyEarly = (p.age_spouse1 >= 55 && p.age_spouse1 < 60) || (p.age_spouse2 >= 55 && p.age_spouse2 < 60);
+      expect(anyEarly).toBe(true);
+      expect(p.conversionRationale).toMatch(/⭐ Early window/);
+    }
   });
 });
 

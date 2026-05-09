@@ -483,7 +483,7 @@ export function projectScenario(input: ProjectorInput): ProjectorOutput {
     // were forced out of traditional accounts even though we didn't spend them.
     withdrawalOrdinary += excessRmdTotal;
 
-    // 5b. Roth conversion (Spec 03 §6 + §6.5).
+    // 5b. Roth conversion (Spec 03 §6 + §6.5 + §6.2a early-window pull-forward).
     //     Run only when both spouses are retired (we've already conservatively
     //     gated on that inside the optimizer too). The optimizer is told the
     //     full ordinary-income picture so it sizes the conversion correctly.
@@ -491,10 +491,27 @@ export function projectScenario(input: ProjectorInput): ProjectorOutput {
     let rothConversionTaxCost = 0;
     let conversionRationale: string | undefined;
     let irmaaWarning = false;
+    let isPullForward = false;
 
     if (rothOptimizerEnabled && bothRetired) {
       const traditionalBalanceNow = balances
         .filter((b) => b.type === "traditional_401k" || b.type === "traditional_ira")
+        .reduce((s, b) => s + b.balance, 0);
+
+      // §6.2a: any spouse aged 55–59 inclusive triggers the early-window flag.
+      // We use integer ages — practical equivalent of "55–59½".
+      const s1Age = age(input.household.spouse1, year);
+      const s2Age = age(input.household.spouse2, year);
+      const inEarly = (a: number) => a >= 55 && a < 60;
+      const anySpouseInEarlyWindow = inEarly(s1Age) || inEarly(s2Age);
+
+      // §6.2a: when in the early window, the conversion's tax bill must be
+      // payable from non-retirement funds (taxable brokerage + cash) — using
+      // traditional accounts to pay the bill before 59½ would trigger a 10%
+      // penalty. We measure available funds AFTER this year's expense
+      // withdrawals so the optimizer doesn't count cash already spoken for.
+      const availableTaxFunds = balances
+        .filter((b) => b.type === "brokerage" || b.type === "cash")
         .reduce((s, b) => s + b.balance, 0);
 
       // Note: we pass rmdIncome = rmdAmountThisYear so the optimizer's headroom
@@ -510,12 +527,15 @@ export function projectScenario(input: ProjectorInput): ProjectorOutput {
         bothRetired,
         olderSpouseAge: age(olderSpouse, year),
         rmdIncome: rmdAmountThisYear,
+        anySpouseInEarlyWindow,
+        availableTaxFunds,
       });
 
       rothConversionAmount = conv.conversionAmount;
       rothConversionTaxCost = conv.taxCost;
       conversionRationale = conv.rationale;
       irmaaWarning = conv.irmaaWarning;
+      isPullForward = conv.isPullForward;
 
       if (rothConversionAmount > 0) {
         // Move money from traditional → roth. Drain pro-rata across traditional accounts.
@@ -619,6 +639,7 @@ export function projectScenario(input: ProjectorInput): ProjectorOutput {
       rothConversionTaxCost,
       conversionRationale,
       irmaaWarning,
+      isPullForward,
     });
 
     yearlyEndBalances.push(portfolioEnd);
