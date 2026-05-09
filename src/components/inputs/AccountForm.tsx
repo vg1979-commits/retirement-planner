@@ -26,6 +26,18 @@ interface Props {
 
 export default function AccountForm({ initial, onSave }: Props) {
   const upsertAccount = useAppStore((s) => s.upsertAccount);
+  const household = useAppStore((s) => s.household);
+
+  // Build owner options dynamically from names entered in People & Timeline
+  const ownerOptions: { value: string; label: string }[] = [
+    { value: "joint", label: "Joint" },
+    { value: "spouse1", label: household.spouse1.name || "Spouse 1" },
+    { value: "spouse2", label: household.spouse2.name || "Spouse 2" },
+    ...household.children.map((c, i) => ({
+      value: c.name || `child${i + 1}`,
+      label: c.name || `Child ${i + 1}`,
+    })),
+  ];
 
   const [form, setForm] = useState<Account>(
     initial ?? {
@@ -57,7 +69,7 @@ export default function AccountForm({ initial, onSave }: Props) {
           className="w-full px-3 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
           value={form.label}
           onChange={(e) => set("label", e.target.value)}
-          placeholder="e.g. Spouse 1 401(k)"
+          placeholder="e.g. Alex's 401(k) at Fidelity"
         />
       </div>
 
@@ -67,11 +79,11 @@ export default function AccountForm({ initial, onSave }: Props) {
           <select
             className="w-full px-3 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             value={form.owner}
-            onChange={(e) => set("owner", e.target.value as Account["owner"])}
+            onChange={(e) => set("owner", e.target.value)}
           >
-            <option value="joint">Joint</option>
-            <option value="spouse1">Spouse 1</option>
-            <option value="spouse2">Spouse 2</option>
+            {ownerOptions.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
           </select>
         </div>
 

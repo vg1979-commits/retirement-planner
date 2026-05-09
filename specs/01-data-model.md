@@ -55,7 +55,9 @@ type AccountType =
 
 interface Account {
   id: string;
-  owner: "spouse1" | "spouse2" | "joint";
+  // "spouse1" | "spouse2" | "joint" | child's name (string from HouseholdProfile.children[].name)
+  // UI dropdown is dynamically built from names entered in the People & Timeline tab
+  owner: string;
   type: AccountType;
   label: string; // e.g. "Vineet's 401k at Fidelity"
   currentBalance: number;
@@ -74,6 +76,8 @@ type IncomeType = "w2_salary" | "rsu" | "bonus" | "rental" | "other";
 
 interface IncomeStream {
   id: string;
+  // "spouse1" | "spouse2" — stored as internal key, displayed as the name entered in HouseholdProfile
+  // Children cannot own income streams
   owner: "spouse1" | "spouse2";
   type: IncomeType;
   label: string;
@@ -91,19 +95,22 @@ interface IncomeStream {
 
 ```typescript
 interface ExpenseProfile {
-  currentAnnualSpending: number; // total household, today's dollars
-  retirementAnnualSpending: number; // target in today's dollars
-  inflationRate: number; // default 0.025 (2.5%)
+  // Both totals are derived (read-only in UI) — sum of their respective category amounts
+  currentAnnualSpending: number;    // = sum of categories[].currentAmount
+  retirementAnnualSpending: number; // = sum of categories[].retirementAmount
 
-  // Optional category breakdown (used for cash flow detail view)
-  categories?: ExpenseCategory[];
+  // inflationRate lives in InvestmentAssumptions (Tab 5), not here
+
+  copyCurrentToRetirement: boolean; // drives the copy toggle in Tab 4; when true, retirementAmount mirrors currentAmount per category
+  categories: ExpenseCategory[];    // always present; drives both totals
 }
 
 interface ExpenseCategory {
-  label: string; // e.g. "Housing", "Travel", "Healthcare"
-  annualAmount: number;
-  activeInRetirement: boolean;
-  retirementAmount?: number; // if different from working years
+  id: string;
+  label: string;            // e.g. "Housing", "Travel", "Healthcare"
+  currentAmount: number;    // today's dollars; user-entered
+  retirementAmount: number; // today's dollars; user-entered, or mirrored from currentAmount when copyCurrentToRetirement is true
+  isCustom: boolean;        // false for default categories, true for user-added rows; only custom rows can be deleted
 }
 ```
 
@@ -126,7 +133,7 @@ interface InvestmentAssumptions {
   cashReturn: number;            // default 0.045 (current HYSA rates)
 
   correlationEquityBond: number; // default -0.10
-  inflationRate: number;         // mirrors ExpenseProfile.inflationRate
+  inflationRate: number;         // default 0.025 (2.5%); moved here from ExpenseProfile; single source of truth used by both expense inflation and bracket inflation in the engine
 }
 
 interface AssetAllocation {
@@ -172,6 +179,9 @@ interface SimulationResult {
   numSimulations: number;
 
   successRate: number; // 0–1, fraction of runs that never hit $0
+
+  // Roth conversion summary for the Tax View summary bar
+  rothConversionSummary: RothConversionSummary;
 
   // Per-year summary (median path)
   annualProjections: AnnualProjection[];
@@ -236,8 +246,26 @@ interface TaxSnapshot {
   effectiveRate: number;
   marginalRate: number;
 
-  rothConversionAmount?: number;   // if a conversion was done this year
+  rothConversionAmount?: number;    // if a conversion was done this year
   rothConversionTaxCost?: number;
+  conversionRationale?: string;     // plain-English explanation of why/why-not (e.g. "Filled 22% bracket", "No headroom — RMD fills bracket")
+}
+```
+
+---
+
+## 8a. Roth Conversion Summary (per scenario)
+
+```typescript
+interface RothConversionSummary {
+  totalConverted: number;                  // cumulative dollars converted across all years
+  totalTaxCostWithConversions: number;     // lifetime federal tax with strategy enabled
+  totalTaxCostWithoutConversions: number;  // lifetime federal tax if no conversions done
+  estimatedTaxSavings: number;             // headline figure: without minus with
+  conversionWindowStart: number;           // first year a conversion is recommended
+  conversionWindowEnd: number;             // last year a conversion is recommended
+  traditionalBalanceAtRMDAge: number;      // projected trad. balance at age 73 without conversions
+  narrativeSummary: string;                // 2–3 sentence plain-English explanation for the UI summary bar
 }
 
 interface TaxBracketLine {
@@ -266,9 +294,70 @@ interface AppState {
 }
 
 interface UIState {
-  activeView: "inputs" | "projections" | "cashflow" | "taxes" | "scenarios";
+  activeView: "inputs" | "projections" | "cashflow" | "taxes" | "scenarios" | "release-notes";
   activeScenarioIds: string[]; // which scenarios are shown on charts
   isSimulating: boolean;
   lastRunAt: string | null;
 }
 ```
+
+---
+
+## 10. Save File Format
+
+When the user saves their plan to a local `.json` file, it is wrapped in a versioned envelope. This allows future data model migrations without breaking old files.
+
+```typescript
+interface SaveFile {
+  version: string;        // current: "1"
+  savedAt: string;        // ISO 8601 datetime
+  state: Omit<AppState, "results" | "ui">; // inputs only — no simulation results, no UI state
+}
+```
+
+The `state` field explicitly includes:
+- `household` — people, children, planning horizon
+- `accounts` — all account balances and contributions
+- `incomeStreams` — all income sources
+- `expenses` — category breakdowns, current and retirement amounts per category, copy toggle state (Tab 4)
+- `investmentAssumptions` — pre/post-retirement allocation, return assumptions, volatility, correlation, and inflation rate (Tab 5)
+- `scenarios` — **all scenarios in full**, including each scenario's label, color, overrides, and `oneTimeEvents` (one-time expenses such as home purchases, large gifts, etc.)
+
+The `state` field explicitly excludes:
+- `results` — always re-computed after import; never persisted
+- `ui` — UI resets to defaults on import (active view → "inputs")
+
+On import:
+- File is validated against the Zod schema for `SaveFile` before being applied
+- All scenario data (including one-time expenses) is restored exactly as saved
+- If `version` is unrecognized, display a warning but attempt to load anyway
+
+---
+
+## 9. Initial State
+
+The app starts with a completely empty state — no pre-filled demo data. All fields begin blank or at their minimum valid value. The Zustand store initializes with:
+
+- `household`: empty names, birth years and salaries set to 0
+- `accounts`: empty array
+- `incomeStreams`: empty array
+- `expenses`: all amounts 0, inflationRate defaulting to 0.025
+- `investmentAssumptions`: default return/volatility values only (no allocation pre-set)
+- `scenarios`: one empty baseline scenario ("Base Case") with no overrides
+- `results`: empty record
+
+The user must fill in all inputs before running a simulation. Empty-state UI (see Spec 04 §6) guides them through each section.
+
+---
+
+## Changelog
+- 2026-05-09T16:19:58Z: Added §9 Initial State — app starts empty, no pre-filled demo data
+- 2026-05-09T16:19:58Z: Account.owner changed from union literal to string — dynamically driven by names entered in People & Timeline
+- 2026-05-09T16:19:58Z: IncomeStream.owner stays "spouse1" | "spouse2" internally but UI displays spouse names from Tab 1; children excluded from income ownership
+- 2026-05-09T16:19:58Z: ExpenseProfile.currentAnnualSpending and retirementAnnualSpending are now derived fields; ExpenseCategory is now the source of truth with separate currentAmount and retirementAmount per category
+- 2026-05-09T16:19:58Z: UIState.activeView updated to include "release-notes"
+- 2026-05-09T16:19:58Z: Added §10 Save File Format — versioned SaveFile wrapper type for local .json export/import
+- 2026-05-09T16:19:58Z: §10 clarified — SaveFile explicitly includes all scenarios and one-time expenses; results and ui explicitly excluded
+- 2026-05-09T16:27:57Z: ExpenseProfile.inflationRate moved to InvestmentAssumptions — single source of truth; ExpenseProfile.copyCurrentToRetirement added to drive copy toggle state
+- 2026-05-09T19:24:07Z: §10 SaveFile bullet list corrected — expenses entry no longer mentions inflation rate (moved to investmentAssumptions); both entries now explicitly map to their Tab
+- 2026-05-09T20:12:00Z: Added §8a RothConversionSummary type; added rothConversionSummary field to SimulationResult; added conversionRationale field to TaxSnapshot

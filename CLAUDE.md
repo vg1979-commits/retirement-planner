@@ -157,4 +157,25 @@ Do not implement these — stub with placeholder UI if needed:
 - The Monte Carlo engine must run in a Web Worker (`engine/worker.ts`) — never block the main thread.
 - Tax brackets must be inflation-adjusted each projection year — hardcoded 2025 values in `constants.ts`, adjusted annually in the projector.
 - When in doubt about financial modeling details, refer to the relevant spec file rather than guessing.
-- Demo data should reflect the family profile above (high income, multiple account types, two spouses near peak earning years).
+- The app starts with a completely empty state. Do not pre-populate any accounts, income streams, balances, or salaries. The family profile above is context for understanding the user, not seed data.
+- Environment variables are managed via `.env.local` (gitignored, not committed). A `.env.example` file documents all required variables. Always read `.env.example` before implementing any feature that uses `import.meta.env`. Never hardcode values that belong in env variables.
+
+---
+
+## Changelog
+- 2026-05-09T16:19:58Z: Clarified that app starts with empty state — family profile is context only, not demo data
+- 2026-05-09T16:19:58Z: Added env variable guidance; .env.example created for VITE_GITHUB_OWNER and VITE_GITHUB_REPO
+- 2026-05-09T16:19:58Z: Added Save & Import feature — manual .json file save/import via header buttons plus auto-save to localStorage; versioned SaveFile format defined in Spec 01 §10 and fully specified in Spec 04 §9
+- 2026-05-09T16:19:58Z: Spec 04 §3.1 updated — children section is dynamic add/remove list; account and income owner dropdowns driven by names from People & Timeline tab
+- 2026-05-09T16:19:58Z: Spec 04 §3.6 added — Release Notes view fetched from GitHub Releases API; configured via VITE_GITHUB_OWNER and VITE_GITHUB_REPO env variables
+- 2026-05-09T16:19:58Z: Spec 04 Tab 4 updated — expense category breakdowns drive Current and Retirement spending totals; totals are read-only
+- 2026-05-09T16:19:58Z: Spec 02 §5 updated — Roth 401k exempt from RMDs per SECURE 2.0; RMD–conversion interaction and RMD tax bomb warning added
+- 2026-05-09T16:19:58Z: Spec 03 §6.2 updated — Roth conversion optimizer now accounts for RMD income when calculating bracket headroom; conversions continue past age 73 where headroom remains
+- 2026-05-09T16:19:58Z: Spec 01 §10 clarified — SaveFile explicitly includes all scenarios and one-time expenses; results and ui excluded
+- 2026-05-09T16:27:57Z: Spec 04 Tab 4 redesigned — unified side-by-side expense table with copy toggle; inflation rate moved to Tab 5 Assumptions
+- 2026-05-09T16:27:57Z: Spec 01 §4 updated — inflationRate moved from ExpenseProfile to InvestmentAssumptions; copyCurrentToRetirement flag added to ExpenseProfile
+- 2026-05-09T20:12:00Z: Spec 04 §3.4 Roth Conversion Planner fully built out — optimizer toggle, target bracket selector, summary bar with estimated tax savings headline and plain-language rationale, detailed year-by-year table
+- 2026-05-09T20:12:00Z: Spec 03 §6.5 updated — RothConversionSummary type added; estimatedTaxSavings computed by diffing lifetime tax with vs. without conversions on median path
+- 2026-05-09T20:12:00Z: Spec 01 updated — RothConversionSummary type added in §8a; SimulationResult gains rothConversionSummary field; TaxSnapshot gains conversionRationale field
+- 2026-05-09T20:56:02Z: Spec 03 §6.2a added — early retirement pull-forward logic for ages 55–59½; triggers when marginal rate < target bracket; early withdrawal penalty distinction and tax payment sourcing rules specified
+- 2026-05-09T20:56:02Z: Spec 04 §3.4 updated — pull-forward years highlighted amber with ⭐; early window callout in summary bar; inline pre-59½ penalty warning in table

@@ -204,7 +204,7 @@ describe("withdrawal ordering — RMD phase", () => {
     expect(result.rmds[0].rmdAmount).toBeCloseTo(1_000_000 / 24.6, 0);
   });
 
-  it("does not generate RMDs for Roth accounts", () => {
+  it("does not generate RMDs for Roth accounts (Roth IRA always exempt)", () => {
     const result = executeWithdrawals(
       makeInput({
         accounts: [
@@ -218,6 +218,39 @@ describe("withdrawal ordering — RMD phase", () => {
     );
     const rothRmd = result.rmds.find((r) => r.accountId === "roth1");
     expect(rothRmd).toBeUndefined();
+  });
+
+  it("does not generate RMDs for Roth 401k (SECURE 2.0 exemption)", () => {
+    const result = executeWithdrawals(
+      makeInput({
+        accounts: [
+          acct("trad1", "traditional_401k", 500_000),
+          acct("roth401k", "roth_401k", 500_000),
+        ],
+        amountNeeded: 20_000,
+        olderSpouseAge: 75,
+        bothRetired: true,
+      })
+    );
+    const roth401kRmd = result.rmds.find((r) => r.accountId === "roth401k");
+    expect(roth401kRmd).toBeUndefined();
+    // Only the traditional account should get an RMD entry
+    expect(result.rmds).toHaveLength(1);
+    expect(result.rmds[0].accountId).toBe("trad1");
+  });
+
+  it("generates RMDs for deferred comp accounts", () => {
+    const result = executeWithdrawals(
+      makeInput({
+        accounts: [acct("dc1", "deferred_comp", 600_000)],
+        amountNeeded: 10_000,
+        olderSpouseAge: 75,
+        bothRetired: true,
+      })
+    );
+    expect(result.rmds).toHaveLength(1);
+    expect(result.rmds[0].accountId).toBe("dc1");
+    expect(result.rmds[0].rmdAmount).toBeGreaterThan(0);
   });
 
   it("excess RMD above need is reinvested", () => {

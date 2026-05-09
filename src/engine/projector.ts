@@ -6,10 +6,11 @@ import type {
   HouseholdProfile,
   IncomeStream,
   InvestmentAssumptions,
+  RothConversionTargetBracket,
   Scenario,
   AssetAllocation,
 } from "../types";
-import { calculateTax } from "./taxEngine";
+import { calculateTax, optimizeRothConversion } from "./taxEngine";
 import {
   executeWithdrawals,
   type AccountBalance,
@@ -23,6 +24,17 @@ import { annual401kLimit, annualIraLimit, annualHsaLimit } from "./taxEngine";
 const BROKERAGE_DIVIDEND_YIELD = 0.018; // ~S&P 500 dividend yield
 const CASH_INTEREST_TAXABLE = true;
 
+// Account types whose withdrawals count as ordinary income (pre-tax money)
+const ORDINARY_INCOME_WITHDRAWAL_TYPES = new Set<AccountType>([
+  "traditional_401k",
+  "traditional_ira",
+  "deferred_comp",
+  "pension",
+]);
+
+// Account types whose withdrawals are realised as long-term capital gains
+const LTCG_WITHDRAWAL_TYPES = new Set<AccountType>(["brokerage"]);
+
 // ─── Public input/output ──────────────────────────────────────────────────────
 
 export interface ProjectorInput {
@@ -34,6 +46,14 @@ export interface ProjectorInput {
   scenario?: Scenario;
   run: SimulationRun;
   startYear: number; // first projection year (typically currentYear)
+
+  /** Override Roth optimizer settings — used when running the no-conversion baseline
+   *  for the savings comparison. If omitted, falls back to the scenario's settings
+   *  (default: optimizer ON, target 22%). */
+  rothOptimizerOverride?: {
+    enabled: boolean;
+    targetBracket?: RothConversionTargetBracket;
+  };
 }
 
 export interface ProjectorOutput {
@@ -41,6 +61,11 @@ export interface ProjectorOutput {
   yearlyEndBalances: number[]; // for percentile extraction
   depleted: boolean;
   finalBalance: number;
+  /** Sum of federalTax across all annualProjections — used to compare with-vs-without conversions. */
+  lifetimeFederalTax: number;
+  /** Traditional account balance at age 73 (RMD start). Used for the RMD tax bomb indicator
+   *  in the Roth Planner summary bar. */
+  traditionalBalanceAtRMDAge: number;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -85,6 +110,10 @@ interface IncomeBreakdown {
   netInvestmentIncome: number; // dividends + interest + LTCG (for NIIT)
   spouse1Working: boolean;
   spouse2Working: boolean;
+  /** Earned income from active streams, tracked per owner.
+   *  Used to gate tax-advantaged contributions (can't contribute to a
+   *  401k / IRA / HSA without earned income). */
+  earnedByOwner: { spouse1: number; spouse2: number };
 }
 
 function calculateIncome(
@@ -108,6 +137,8 @@ function calculateIncome(
   );
 
   let ordinaryIncome = 0;
+  let s1Earned = 0;
+  let s2Earned = 0;
   for (const stream of incomeStreams) {
     if (year < stream.startYear || year > stream.endYear) continue;
 
@@ -123,6 +154,9 @@ function calculateIncome(
 
     if (stream.taxTreatment === "ordinary_income") {
       ordinaryIncome += grown;
+      // Track earned income per owner so contributions can be gated correctly
+      if (owner === "spouse1") s1Earned += grown;
+      else if (owner === "spouse2") s2Earned += grown;
     } else if (stream.taxTreatment === "ltcg") {
       // unusual for income streams; treat as LTCG
     } else {
@@ -150,10 +184,22 @@ function calculateIncome(
     netInvestmentIncome,
     spouse1Working: s1Working,
     spouse2Working: s2Working,
+    earnedByOwner: { spouse1: s1Earned, spouse2: s2Earned },
   };
 }
 
 // ─── Contributions ────────────────────────────────────────────────────────────
+
+// Account types that require earned income to accept contributions.
+// You cannot fund a 401k, IRA, or HSA without employment / earned income.
+// Brokerage and cash accounts have no such restriction.
+const REQUIRES_EARNED_INCOME = new Set<AccountType>([
+  "traditional_401k",
+  "roth_401k",
+  "traditional_ira",
+  "roth_ira",
+  "hsa",
+]);
 
 interface ContributionResult {
   totalContributions: number;
@@ -165,7 +211,8 @@ function calculateContributions(
   input: ProjectorInput,
   year: number,
   s1Working: boolean,
-  s2Working: boolean
+  s2Working: boolean,
+  earnedByOwner: { spouse1: number; spouse2: number }
 ): ContributionResult {
   const { household, accounts } = input;
   const perAccount: { accountId: string; amount: number }[] = [];
@@ -173,12 +220,24 @@ function calculateContributions(
   let preTax = 0;
 
   for (const acct of accounts) {
+    // Gate on retirement-age status first
     const ownerWorking =
       acct.owner === "spouse1" ? s1Working :
       acct.owner === "spouse2" ? s2Working :
       s1Working || s2Working;
 
     if (!ownerWorking) continue;
+
+    // Tax-advantaged retirement accounts additionally require earned income.
+    // Without an active paycheck you cannot contribute to a 401k / IRA / HSA.
+    if (REQUIRES_EARNED_INCOME.has(acct.type)) {
+      const ownerEarned =
+        acct.owner === "spouse1" ? earnedByOwner.spouse1 :
+        acct.owner === "spouse2" ? earnedByOwner.spouse2 :
+        // joint → either spouse's income qualifies (e.g. spousal IRA)
+        earnedByOwner.spouse1 + earnedByOwner.spouse2;
+      if (ownerEarned <= 0) continue;
+    }
 
     const ownerPerson = acct.owner === "spouse2" ? household.spouse2 : household.spouse1;
     const ownerAge = age(ownerPerson, year);
@@ -264,7 +323,10 @@ function calculateAnnualExpenses(
 ): number {
   const { expenses, scenario } = input;
   const yearsElapsed = year - input.startYear;
-  const inflation = expenses.inflationRate;
+  // Single source of truth: inflation lives on InvestmentAssumptions.
+  // (Scenario allocationOverride may override it for what-if analysis.)
+  const inflation =
+    scenario?.allocationOverride?.inflationRate ?? input.investmentAssumptions.inflationRate;
 
   const retirementSpend = scenario?.annualSpendingOverride ?? expenses.retirementAnnualSpending;
   const baseToday = bothRetired ? retirementSpend : expenses.currentAnnualSpending;
@@ -288,6 +350,17 @@ export function projectScenario(input: ProjectorInput): ProjectorOutput {
     input.scenario?.allocationOverride
   );
 
+  // Resolve Roth optimizer settings: explicit override (used by the no-conversion baseline pass)
+  // beats scenario settings, which fall back to the spec defaults (ON, 22%).
+  const rothOptimizerEnabled =
+    input.rothOptimizerOverride?.enabled ??
+    input.scenario?.enableRothOptimizer ??
+    true;
+  const rothTargetBracket: RothConversionTargetBracket =
+    input.rothOptimizerOverride?.targetBracket ??
+    input.scenario?.rothConversionTargetBracket ??
+    "22pct";
+
   // Initialize balances from accounts
   const balances: AccountBalance[] = input.accounts.map((a) => ({
     accountId: a.id,
@@ -306,6 +379,17 @@ export function projectScenario(input: ProjectorInput): ProjectorOutput {
   const endYear = olderSpouseBirth + input.household.planningHorizon.endAge;
 
   let depleted = false;
+  let lifetimeFederalTax = 0;
+  let traditionalBalanceAtRMDAge = 0;
+
+  // Identify older spouse once (used for RMD age calculation each year)
+  const olderSpouse =
+    input.household.spouse1.birthYear <= input.household.spouse2.birthYear
+      ? input.household.spouse1
+      : input.household.spouse2;
+
+  // Build accountId → type lookup from the initial balances array (types never change)
+  const acctTypeById = new Map(balances.map((b) => [b.accountId, b.type]));
 
   for (let year = input.startYear; year <= endYear; year++) {
     const yearIdx = year - input.startYear;
@@ -318,76 +402,213 @@ export function projectScenario(input: ProjectorInput): ProjectorOutput {
       .filter((b) => b.type === "cash")
       .reduce((s, b) => s + b.balance, 0);
 
-    // 1. Income
+    // 1. Income (W2 salaries, RSUs, dividends, cash interest — no withdrawals yet)
     const income = calculateIncome(input, year, brokerageBalance, cashBalance);
     const earnedIncome = income.ordinaryIncome - cashBalance * assumptions.cashReturn;
     const investmentIncome = income.netInvestmentIncome;
 
     // 2. Contributions
     const contribs = calculateContributions(
-      input, year, income.spouse1Working, income.spouse2Working
+      input, year, income.spouse1Working, income.spouse2Working, income.earnedByOwner
     );
     applyContributions(balances, contribs.perAccount, input.accounts);
 
-    // 3. Tax
-    const taxableOrdinary = Math.max(0, income.ordinaryIncome - contribs.preTaxReduction);
-    const taxSnapshot = calculateTax({
-      year,
-      inflationRate: assumptions.inflationRate,
-      ordinaryIncome: taxableOrdinary,
-      longTermCapitalGains: income.ltcg,
-      qualifiedDividends: income.qualifiedDividends,
-      netInvestmentIncome: income.netInvestmentIncome,
-    });
-
-    // 4. Expenses
+    // 3. Expenses
     const bothRetired = !income.spouse1Working && !income.spouse2Working;
     const totalExpenses = calculateAnnualExpenses(input, year, bothRetired);
 
-    // 5. Net cash flow
-    const afterTaxIncome = income.ordinaryIncome - taxSnapshot.totalFederalTax;
-    const cashAvailable = afterTaxIncome - contribs.totalContributions;
-    const netCashFlow = cashAvailable - totalExpenses;
+    // 4. First-pass withdrawals — cover the gross cash shortfall before knowing
+    //    the exact tax on those withdrawals (tax is unknown until we know the
+    //    withdrawal mix, which is unknown until we run the strategy).
+    //
+    //    Gross shortfall = how much portfolio cash we need before taxes:
+    //      expenses + contributions − income (we'll top-up for taxes in step 6)
+    const baseOrdinary = Math.max(0, income.ordinaryIncome - contribs.preTaxReduction);
+    const grossShortfall = Math.max(
+      0,
+      totalExpenses + contribs.totalContributions - income.ordinaryIncome
+    );
 
-    let withdrawalBreakdown: { accountId: string; amount: number }[] = [];
+    // Snapshot the start-of-year traditional balance for the Roth Planner table.
+    const traditionalBalanceStart = balances
+      .filter((b) => b.type === "traditional_401k" || b.type === "traditional_ira" || b.type === "deferred_comp")
+      .reduce((s, b) => s + b.balance, 0);
+
+    const withdrawalBreakdown: { accountId: string; amount: number }[] = [];
     let totalWithdrawn = 0;
+    let excessRmdTotal = 0;
+    let rmdAmountThisYear = 0; // mandatory RMD income for tax / optimizer purposes
 
-    if (netCashFlow >= 0) {
-      applySurplus(balances, netCashFlow);
-    } else {
-      // Need = expense shortfall
-      const need = -netCashFlow;
+    // Helper: run the withdrawal engine against the live balances array.
+    function runWithdrawals(need: number, currentIncome: number): void {
+      if (need <= 0 && (!bothRetired || age(olderSpouse, year) < 73)) return;
       const result = executeWithdrawals({
         accounts: balances,
-        amountNeeded: need,
-        olderSpouseAge: age(
-          input.household.spouse1.birthYear < input.household.spouse2.birthYear
-            ? input.household.spouse1
-            : input.household.spouse2,
-          year
-        ),
+        amountNeeded: Math.max(0, need),
+        olderSpouseAge: age(olderSpouse, year),
         bothRetired,
-        currentOrdinaryIncome: taxableOrdinary,
+        currentOrdinaryIncome: currentIncome,
         year,
         inflationRate: assumptions.inflationRate,
         annualExpenses: totalExpenses,
       });
-
-      withdrawalBreakdown = result.breakdown;
-      totalWithdrawn = result.totalWithdrawn;
-
-      // Apply mutated balances
+      withdrawalBreakdown.push(...result.breakdown);
+      totalWithdrawn += result.totalWithdrawn;
+      excessRmdTotal += result.excessRmdReinvested;
+      // Sum up RMD amounts from this call (used for optimizer headroom + tax)
+      for (const r of result.rmds) rmdAmountThisYear += r.rmdAmount;
       for (let i = 0; i < balances.length; i++) {
         balances[i].balance = result.updatedBalances[i].balance;
       }
-
-      // Reinvest excess RMDs
-      applySurplus(balances, result.excessRmdReinvested);
-
       if (result.portfolioDepleted) depleted = true;
     }
 
-    // 6. Apply investment returns
+    runWithdrawals(grossShortfall, baseOrdinary);
+
+    // 5. Classify withdrawals by tax treatment so we can compute the real tax.
+    //    • Traditional 401k / IRA / deferred comp / pension → ordinary income
+    //    • Brokerage → long-term capital gains (v1 simplification)
+    //    • Cash, Roth, HSA → not additional taxable income
+    let withdrawalOrdinary = 0;
+    let withdrawalLTCG = 0;
+    for (const w of withdrawalBreakdown) {
+      const type = acctTypeById.get(w.accountId);
+      if (type && ORDINARY_INCOME_WITHDRAWAL_TYPES.has(type)) {
+        withdrawalOrdinary += w.amount;
+      } else if (type && LTCG_WITHDRAWAL_TYPES.has(type)) {
+        withdrawalLTCG += w.amount;
+      }
+    }
+    // Excess RMDs (beyond current need) also count as ordinary income — they
+    // were forced out of traditional accounts even though we didn't spend them.
+    withdrawalOrdinary += excessRmdTotal;
+
+    // 5b. Roth conversion (Spec 03 §6 + §6.5 + §6.2a early-window pull-forward).
+    //     Run only when both spouses are retired (we've already conservatively
+    //     gated on that inside the optimizer too). The optimizer is told the
+    //     full ordinary-income picture so it sizes the conversion correctly.
+    let rothConversionAmount = 0;
+    let rothConversionTaxCost = 0;
+    let conversionRationale: string | undefined;
+    let irmaaWarning = false;
+    let isPullForward = false;
+
+    if (rothOptimizerEnabled && bothRetired) {
+      const traditionalBalanceNow = balances
+        .filter((b) => b.type === "traditional_401k" || b.type === "traditional_ira")
+        .reduce((s, b) => s + b.balance, 0);
+
+      // §6.2a: any spouse aged 55–59 inclusive triggers the early-window flag.
+      // We use integer ages — practical equivalent of "55–59½".
+      const s1Age = age(input.household.spouse1, year);
+      const s2Age = age(input.household.spouse2, year);
+      const inEarly = (a: number) => a >= 55 && a < 60;
+      const anySpouseInEarlyWindow = inEarly(s1Age) || inEarly(s2Age);
+
+      // §6.2a: when in the early window, the conversion's tax bill must be
+      // payable from non-retirement funds (taxable brokerage + cash) — using
+      // traditional accounts to pay the bill before 59½ would trigger a 10%
+      // penalty. We measure available funds AFTER this year's expense
+      // withdrawals so the optimizer doesn't count cash already spoken for.
+      const availableTaxFunds = balances
+        .filter((b) => b.type === "brokerage" || b.type === "cash")
+        .reduce((s, b) => s + b.balance, 0);
+
+      // Note: we pass rmdIncome = rmdAmountThisYear so the optimizer's headroom
+      // calc respects mandatory income post-73.
+      const optimizerOrdinary = baseOrdinary + withdrawalOrdinary - rmdAmountThisYear;
+      const conv = optimizeRothConversion({
+        year,
+        inflationRate: assumptions.inflationRate,
+        ordinaryIncomeBeforeConversion: optimizerOrdinary,
+        longTermCapitalGains: income.ltcg + withdrawalLTCG,
+        traditionalBalance: traditionalBalanceNow,
+        targetBracket: rothTargetBracket,
+        bothRetired,
+        olderSpouseAge: age(olderSpouse, year),
+        rmdIncome: rmdAmountThisYear,
+        anySpouseInEarlyWindow,
+        availableTaxFunds,
+      });
+
+      rothConversionAmount = conv.conversionAmount;
+      rothConversionTaxCost = conv.taxCost;
+      conversionRationale = conv.rationale;
+      irmaaWarning = conv.irmaaWarning;
+      isPullForward = conv.isPullForward;
+
+      if (rothConversionAmount > 0) {
+        // Move money from traditional → roth. Drain pro-rata across traditional accounts.
+        let remaining = rothConversionAmount;
+        for (const acct of balances) {
+          if (remaining <= 0) break;
+          if (acct.type !== "traditional_401k" && acct.type !== "traditional_ira") continue;
+          const drawn = Math.min(acct.balance, remaining);
+          acct.balance -= drawn;
+          remaining -= drawn;
+        }
+        // Park converted dollars in the first roth account if one exists; otherwise create
+        // a synthetic line by adding to the first roth_ira-type balance entry. If the user
+        // has no Roth account at all, the conversion still counts as taxable income but
+        // there's nowhere to put the money — fall back to brokerage so the cash isn't lost.
+        const rothTarget =
+          balances.find((b) => b.type === "roth_ira") ??
+          balances.find((b) => b.type === "roth_401k");
+        if (rothTarget) {
+          rothTarget.balance += rothConversionAmount;
+        } else {
+          applySurplus(balances, rothConversionAmount);
+        }
+      }
+    }
+
+    // 6. Tax — now computed on the complete income picture including withdrawals
+    //    and any Roth conversion this year.
+    const taxableOrdinary = baseOrdinary + withdrawalOrdinary + rothConversionAmount;
+    const taxableLTCG = income.ltcg + withdrawalLTCG;
+    const taxSnapshot = calculateTax({
+      year,
+      inflationRate: assumptions.inflationRate,
+      ordinaryIncome: taxableOrdinary,
+      longTermCapitalGains: taxableLTCG,
+      qualifiedDividends: income.qualifiedDividends,
+      netInvestmentIncome: income.netInvestmentIncome + withdrawalLTCG,
+      rothConversionAmount: rothConversionAmount || undefined,
+      conversionRationale,
+    });
+
+    // 7. Net cash flow check.
+    //    The gross shortfall didn't include taxes; if the tax bill is larger than
+    //    zero we need a supplemental withdrawal to cover it.
+    //
+    //    Cash in:  income.ordinaryIncome  (W2 + interest, received as cash)
+    //            + totalWithdrawn         (cash from portfolio accounts)
+    //    Cash out: taxes + contributions + expenses
+    //
+    //    Roth conversions don't move cash in/out of the household — they shift
+    //    money between portfolio accounts — so they don't appear in netFlow.
+    //    The tax cost of the conversion IS in taxSnapshot.totalFederalTax,
+    //    however, so it correctly increases the cash deficit.
+    const netFlow =
+      income.ordinaryIncome +
+      totalWithdrawn -
+      taxSnapshot.totalFederalTax -
+      contribs.totalContributions -
+      totalExpenses;
+
+    if (netFlow >= 0) {
+      // Surplus — park in brokerage
+      applySurplus(balances, netFlow);
+    } else {
+      // Taxes consumed more than the initial withdrawal covered.
+      // Pull just enough extra to settle the bill; don't iterate taxes again.
+      runWithdrawals(-netFlow, taxableOrdinary);
+    }
+
+    // Reinvest excess RMDs (mandatory withdrawals beyond current-year need)
+    applySurplus(balances, excessRmdTotal);
+
+    // 8. Apply investment returns
     const allocation = effectiveAllocation(assumptions, bothRetired);
     const returns = input.run.returns[Math.min(yearIdx, input.run.returns.length - 1)];
     applyReturns(balances, returns, allocation);
@@ -404,6 +625,7 @@ export function projectScenario(input: ProjectorInput): ProjectorOutput {
       totalIncome: earnedIncome + investmentIncome,
       federalTax: taxSnapshot.totalFederalTax,
       effectiveTaxRate: taxSnapshot.effectiveRate,
+      marginalRate: taxSnapshot.marginalRate,
       totalExpenses,
       portfolioStartBalance: portfolioStart,
       contributions: contribs.totalContributions,
@@ -411,9 +633,24 @@ export function projectScenario(input: ProjectorInput): ProjectorOutput {
       investmentGains,
       portfolioEndBalance: portfolioEnd,
       withdrawalBreakdown,
+      traditionalBalanceStart,
+      rmdAmount: rmdAmountThisYear,
+      rothConversionAmount,
+      rothConversionTaxCost,
+      conversionRationale,
+      irmaaWarning,
+      isPullForward,
     });
 
     yearlyEndBalances.push(portfolioEnd);
+    lifetimeFederalTax += taxSnapshot.totalFederalTax;
+
+    // Capture the traditional balance the first year the older spouse hits RMD age.
+    // Used by the Roth Planner summary's "RMD tax bomb" indicator on the no-conversion
+    // baseline pass.
+    if (age(olderSpouse, year) === 73 && traditionalBalanceAtRMDAge === 0) {
+      traditionalBalanceAtRMDAge = traditionalBalanceStart;
+    }
 
     // Early exit if fully depleted (continue recording zero years)
     if (portfolioEnd <= 0) depleted = true;
@@ -424,5 +661,7 @@ export function projectScenario(input: ProjectorInput): ProjectorOutput {
     yearlyEndBalances,
     depleted,
     finalBalance: balances.reduce((s, b) => s + b.balance, 0),
+    lifetimeFederalTax,
+    traditionalBalanceAtRMDAge,
   };
 }

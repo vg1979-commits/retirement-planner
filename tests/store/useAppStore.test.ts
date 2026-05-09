@@ -1,30 +1,29 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { useAppStore } from "../../src/store/useAppStore";
 
-// Each test starts from a fresh demo state.
+// Each test starts from a fresh empty state.
 beforeEach(() => {
-  useAppStore.getState().resetToDemo();
+  useAppStore.getState().resetToEmpty();
 });
 
 describe("useAppStore — initial state", () => {
-  it("loads demo household", () => {
+  it("starts with an empty household", () => {
     const s = useAppStore.getState();
-    expect(s.household.id).toBe("household-demo");
-    expect(s.household.children).toHaveLength(2);
+    expect(s.household.spouse1.name).toBe("");
+    expect(s.household.spouse1.birthYear).toBe(0);
+    expect(s.household.spouse2.name).toBe("");
+    expect(s.household.children).toHaveLength(0);
   });
 
-  it("loads demo accounts spanning multiple types", () => {
-    const accts = useAppStore.getState().accounts;
-    const types = new Set(accts.map((a) => a.type));
-    expect(types.has("traditional_401k")).toBe(true);
-    expect(types.has("roth_ira")).toBe(true);
-    expect(types.has("brokerage")).toBe(true);
-    expect(types.has("cash")).toBe(true);
-    expect(types.has("hsa")).toBe(true);
+  it("starts with no accounts", () => {
+    expect(useAppStore.getState().accounts).toHaveLength(0);
   });
 
-  it("loads demo scenarios", () => {
-    expect(useAppStore.getState().scenarios.length).toBeGreaterThanOrEqual(2);
+  it("starts with one baseline scenario", () => {
+    const scenarios = useAppStore.getState().scenarios;
+    expect(scenarios).toHaveLength(1);
+    expect(scenarios[0].id).toBe("base");
+    expect(scenarios[0].label).toBe("Base Case");
   });
 
   it("starts with no results and not simulating", () => {
@@ -33,21 +32,54 @@ describe("useAppStore — initial state", () => {
     expect(s.ui.isSimulating).toBe(false);
   });
 
-  it("activeScenarioIds defaults to all demo scenarios", () => {
+  it("activeScenarioIds defaults to the base scenario", () => {
     const s = useAppStore.getState();
-    expect(s.ui.activeScenarioIds).toHaveLength(s.scenarios.length);
+    expect(s.ui.activeScenarioIds).toEqual(["base"]);
+  });
+
+  it("expenses start with copy toggle off and 10 default categories", () => {
+    const e = useAppStore.getState().expenses;
+    expect(e.copyCurrentToRetirement).toBe(false);
+    expect(e.categories.length).toBe(10);
+    expect(e.currentAnnualSpending).toBe(0);
+    expect(e.retirementAnnualSpending).toBe(0);
+  });
+
+  it("inflationRate lives on investmentAssumptions (single source of truth)", () => {
+    const a = useAppStore.getState().investmentAssumptions;
+    expect(a.inflationRate).toBe(0.025);
+  });
+
+  it("investmentAssumptions start with default return/volatility values", () => {
+    const a = useAppStore.getState().investmentAssumptions;
+    expect(a.equityMeanReturn).toBe(0.07);
+    expect(a.equityStdDev).toBe(0.15);
+    expect(a.bondMeanReturn).toBe(0.035);
+    expect(a.bondStdDev).toBe(0.06);
+    expect(a.cashReturn).toBe(0.045);
+    expect(a.preRetirementAllocation.equityPct).toBe(0);
+    expect(a.postRetirementAllocation.equityPct).toBe(0);
   });
 });
 
 describe("useAppStore — household actions", () => {
   it("updateHousehold patches and bumps updatedAt", async () => {
     const before = useAppStore.getState().household.updatedAt;
-    // Wait a tick so the timestamp differs even on fast machines
     await new Promise((r) => setTimeout(r, 5));
     useAppStore.getState().updateHousehold({ name: "Renamed" });
     const after = useAppStore.getState().household;
     expect(after.name).toBe("Renamed");
     expect(after.updatedAt >= before).toBe(true);
+  });
+
+  it("updateHousehold can add and edit children", () => {
+    useAppStore.getState().updateHousehold({
+      children: [{ name: "Alex", birthYear: 2012, currentAge: 14 }],
+    });
+    const after = useAppStore.getState().household;
+    expect(after.children).toHaveLength(1);
+    expect(after.children[0].name).toBe("Alex");
+    expect(after.children[0].birthYear).toBe(2012);
   });
 });
 
@@ -57,23 +89,81 @@ describe("useAppStore — account actions", () => {
       id: "new-acct", owner: "joint", type: "brokerage", label: "New", currentBalance: 50_000, annualContribution: 0,
     });
     const accts = useAppStore.getState().accounts;
+    expect(accts).toHaveLength(1);
     expect(accts.find((a) => a.id === "new-acct")).toBeDefined();
   });
 
   it("upsertAccount replaces an existing account", () => {
     useAppStore.getState().upsertAccount({
-      id: "401k-s1", owner: "spouse1", type: "traditional_401k", label: "Updated", currentBalance: 999_999, annualContribution: 23_500,
+      id: "acct-1", owner: "spouse1", type: "traditional_401k", label: "Original", currentBalance: 100_000, annualContribution: 23_500,
     });
-    const acct = useAppStore.getState().accounts.find((a) => a.id === "401k-s1");
-    expect(acct?.label).toBe("Updated");
-    expect(acct?.currentBalance).toBe(999_999);
+    useAppStore.getState().upsertAccount({
+      id: "acct-1", owner: "spouse1", type: "traditional_401k", label: "Updated", currentBalance: 999_999, annualContribution: 23_500,
+    });
+    const accts = useAppStore.getState().accounts;
+    expect(accts).toHaveLength(1);
+    expect(accts[0].label).toBe("Updated");
+    expect(accts[0].currentBalance).toBe(999_999);
   });
 
   it("removeAccount removes by id", () => {
-    const before = useAppStore.getState().accounts.length;
-    useAppStore.getState().removeAccount("401k-s1");
-    const after = useAppStore.getState().accounts.length;
-    expect(after).toBe(before - 1);
+    useAppStore.getState().upsertAccount({ id: "acct-1", owner: "joint", type: "brokerage", label: "A", currentBalance: 0, annualContribution: 0 });
+    useAppStore.getState().upsertAccount({ id: "acct-2", owner: "joint", type: "cash",      label: "B", currentBalance: 0, annualContribution: 0 });
+    useAppStore.getState().removeAccount("acct-1");
+    const accts = useAppStore.getState().accounts;
+    expect(accts).toHaveLength(1);
+    expect(accts[0].id).toBe("acct-2");
+  });
+
+  it("account owner accepts child name as a string", () => {
+    useAppStore.getState().upsertAccount({ id: "acct-kid", owner: "Jordan", type: "brokerage", label: "Kid account", currentBalance: 5_000, annualContribution: 0 });
+    const acct = useAppStore.getState().accounts.find((a) => a.id === "acct-kid");
+    expect(acct?.owner).toBe("Jordan");
+  });
+});
+
+describe("useAppStore — expense actions", () => {
+  it("updateExpenses with new categories recomputes derived totals", () => {
+    const cats = useAppStore.getState().expenses.categories.map((c) =>
+      c.id === "cat-housing" ? { ...c, currentAmount: 60_000, retirementAmount: 50_000 } : c
+    );
+    useAppStore.getState().updateExpenses({ categories: cats });
+    const e = useAppStore.getState().expenses;
+    expect(e.currentAnnualSpending).toBe(60_000);
+    expect(e.retirementAnnualSpending).toBe(50_000);
+  });
+
+  it("updateAssumptions patches inflationRate (now lives on assumptions)", () => {
+    useAppStore.getState().updateAssumptions({ inflationRate: 0.03 });
+    expect(useAppStore.getState().investmentAssumptions.inflationRate).toBe(0.03);
+    expect(useAppStore.getState().expenses.categories).toHaveLength(10);
+  });
+
+  it("turning copyCurrentToRetirement on mirrors current → retirement amounts", () => {
+    // Seed a non-trivial current amount, leaving retirement at 0
+    const cats = useAppStore.getState().expenses.categories.map((c) =>
+      c.id === "cat-housing" ? { ...c, currentAmount: 60_000, retirementAmount: 0 } : c
+    );
+    useAppStore.getState().updateExpenses({ categories: cats });
+    expect(useAppStore.getState().expenses.retirementAnnualSpending).toBe(0);
+
+    useAppStore.getState().updateExpenses({ copyCurrentToRetirement: true });
+    const e = useAppStore.getState().expenses;
+    expect(e.copyCurrentToRetirement).toBe(true);
+    expect(e.retirementAnnualSpending).toBe(60_000);
+    const housing = e.categories.find((c) => c.id === "cat-housing");
+    expect(housing?.retirementAmount).toBe(60_000);
+  });
+
+  it("with copyCurrentToRetirement on, editing currentAmount updates retirementAmount in lockstep", () => {
+    useAppStore.getState().updateExpenses({ copyCurrentToRetirement: true });
+    const cats = useAppStore.getState().expenses.categories.map((c) =>
+      c.id === "cat-food" ? { ...c, currentAmount: 18_000 } : c
+    );
+    useAppStore.getState().updateExpenses({ categories: cats });
+    const food = useAppStore.getState().expenses.categories.find((c) => c.id === "cat-food");
+    expect(food?.currentAmount).toBe(18_000);
+    expect(food?.retirementAmount).toBe(18_000);
   });
 });
 
@@ -90,8 +180,9 @@ describe("useAppStore — scenario actions", () => {
   });
 
   it("setActiveScenarios replaces the active list", () => {
-    useAppStore.getState().setActiveScenarios(["base"]);
-    expect(useAppStore.getState().ui.activeScenarioIds).toEqual(["base"]);
+    useAppStore.getState().upsertScenario({ id: "alt", label: "Alt", color: "#dc2626" });
+    useAppStore.getState().setActiveScenarios(["base", "alt"]);
+    expect(useAppStore.getState().ui.activeScenarioIds).toEqual(["base", "alt"]);
   });
 });
 
@@ -99,6 +190,11 @@ describe("useAppStore — UI actions", () => {
   it("setActiveView changes the active view", () => {
     useAppStore.getState().setActiveView("projections");
     expect(useAppStore.getState().ui.activeView).toBe("projections");
+  });
+
+  it("setActiveView accepts release-notes", () => {
+    useAppStore.getState().setActiveView("release-notes");
+    expect(useAppStore.getState().ui.activeView).toBe("release-notes");
   });
 });
 
@@ -109,8 +205,6 @@ describe("useAppStore — simulation lifecycle", () => {
     expect(s.ui.isSimulating).toBe(false);
     expect(s.ui.lastRunAt).not.toBeNull();
     expect(s.simulationProgress).toBe(1);
-
-    // One result per demo scenario, keyed by scenarioId
     for (const scenario of s.scenarios) {
       expect(s.results[scenario.id]).toBeDefined();
       expect(s.results[scenario.id].numSimulations).toBe(20);
@@ -126,17 +220,20 @@ describe("useAppStore — simulation lifecycle", () => {
   it("cancelSimulation resets simulating flag without throwing", async () => {
     const promise = useAppStore.getState().runSimulations(1_000);
     useAppStore.getState().cancelSimulation();
-    // The promise rejects internally with "cancelled" but runSimulations
-    // swallows that — caller's await should resolve normally.
     await promise;
     expect(useAppStore.getState().ui.isSimulating).toBe(false);
   });
 });
 
-describe("useAppStore — resetToDemo", () => {
-  it("restores demo data after edits", () => {
-    useAppStore.getState().removeAccount("401k-s1");
-    useAppStore.getState().resetToDemo();
-    expect(useAppStore.getState().accounts.find((a) => a.id === "401k-s1")).toBeDefined();
+describe("useAppStore — resetToEmpty", () => {
+  it("restores empty state after edits", () => {
+    useAppStore.getState().upsertAccount({ id: "acct-1", owner: "joint", type: "brokerage", label: "Test", currentBalance: 50_000, annualContribution: 0 });
+    useAppStore.getState().updateHousehold({ name: "My Family" });
+    useAppStore.getState().resetToEmpty();
+    const s = useAppStore.getState();
+    expect(s.accounts).toHaveLength(0);
+    expect(s.household.name).toBe("");
+    expect(s.scenarios).toHaveLength(1);
+    expect(s.scenarios[0].id).toBe("base");
   });
 });

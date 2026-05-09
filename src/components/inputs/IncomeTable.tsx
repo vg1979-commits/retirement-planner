@@ -21,7 +21,11 @@ function newId() {
 }
 
 function IncomeForm({ initial, onSave }: { initial?: IncomeStream; onSave: () => void }) {
-  const { upsertIncomeStream } = useAppStore();
+  const { upsertIncomeStream, household } = useAppStore();
+  const spouseOptions = [
+    { value: "spouse1" as const, label: household.spouse1.name || "Spouse 1" },
+    { value: "spouse2" as const, label: household.spouse2.name || "Spouse 2" },
+  ];
   const [form, setForm] = useState<IncomeStream>(
     initial ?? {
       id: newId(),
@@ -66,8 +70,9 @@ function IncomeForm({ initial, onSave }: { initial?: IncomeStream; onSave: () =>
             value={form.owner}
             onChange={(e) => set("owner", e.target.value as IncomeStream["owner"])}
           >
-            <option value="spouse1">Spouse 1</option>
-            <option value="spouse2">Spouse 2</option>
+            {spouseOptions.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
           </select>
         </div>
         <div>
@@ -133,7 +138,10 @@ function IncomeForm({ initial, onSave }: { initial?: IncomeStream; onSave: () =>
 }
 
 export default function IncomeTable() {
-  const { incomeStreams, removeIncomeStream } = useAppStore();
+  const { incomeStreams, removeIncomeStream, household } = useAppStore();
+  function ownerLabel(owner: "spouse1" | "spouse2") {
+    return owner === "spouse1" ? (household.spouse1.name || "Spouse 1") : (household.spouse2.name || "Spouse 2");
+  }
   const [slideOpen, setSlideOpen] = useState(false);
   const [editing, setEditing] = useState<IncomeStream | undefined>(undefined);
 
@@ -174,7 +182,7 @@ export default function IncomeTable() {
               {incomeStreams.map((s) => (
                 <tr key={s.id} className="hover:bg-slate-50">
                   <td className="px-3 py-2 font-medium text-slate-800">{s.label}</td>
-                  <td className="px-3 py-2 text-slate-500 capitalize">{s.owner.replace("spouse", "Spouse ")}</td>
+                  <td className="px-3 py-2 text-slate-500">{ownerLabel(s.owner)}</td>
                   <td className="px-3 py-2 text-slate-500">{TYPE_LABELS[s.type]}</td>
                   <td className="px-3 py-2 text-right font-mono text-slate-800">{fmt.format(s.annualAmount)}</td>
                   <td className="px-3 py-2 text-center text-slate-600">{s.startYear}–{s.endYear}</td>

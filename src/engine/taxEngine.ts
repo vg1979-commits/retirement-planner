@@ -132,6 +132,8 @@ export interface TaxInput {
   netInvestmentIncome: number;
 
   rothConversionAmount?: number;
+  /** Plain-English explanation from optimizeRothConversion(); surfaced in the Tax View. */
+  conversionRationale?: string;
 }
 
 // ─── Main calculation ─────────────────────────────────────────────────────────
@@ -145,6 +147,7 @@ export function calculateTax(input: TaxInput): TaxSnapshot {
     qualifiedDividends,
     netInvestmentIncome,
     rothConversionAmount = 0,
+    conversionRationale,
   } = input;
 
   const brackets = inflateBrackets(TAX_BRACKETS_2025_MFJ, year, inflationRate);
@@ -183,6 +186,7 @@ export function calculateTax(input: TaxInput): TaxSnapshot {
     marginalRate: marginalOrdinaryRate,
     rothConversionAmount: rothConversionAmount || undefined,
     rothConversionTaxCost,
+    conversionRationale,
   };
 }
 
@@ -201,6 +205,18 @@ export interface RothConversionResult {
   taxCost: number;
   rationale: string;
   irmaaWarning: boolean;
+  /** True when this year qualifies for the §6.2a early-retirement pull-forward
+   *  bonus: at least one spouse is age 55–59½ AND the household's pre-conversion
+   *  marginal rate is below the target bracket. UI uses this to row-highlight
+   *  in amber and surface the early-window callout. */
+  isPullForward: boolean;
+  /** Marginal rate on ordinary income BEFORE the conversion (post-RMD, post-deduction).
+   *  Surfaced so the rationale can show "current X% < target Y%". */
+  currentMarginalRate: number;
+  /** True when the early-window funding constraint had to shrink the conversion
+   *  because taxable+cash funds couldn't cover the full tax bill without dipping
+   *  into traditional accounts (which would trigger the 10% pre-59½ penalty). */
+  fundingConstrained: boolean;
 }
 
 export function optimizeRothConversion(
@@ -211,9 +227,20 @@ export function optimizeRothConversion(
     longTermCapitalGains: number;
     traditionalBalance: number;
     targetBracket: ConversionTargetBracket;
-    // both spouses must be retired and below RMD age for conversion window
     bothRetired: boolean;
     olderSpouseAge: number;
+    /** Mandatory RMD income for this year (already realised from traditional accounts).
+     *  Per Spec 03 §6.2: RMDs consume bracket headroom before conversion is sized. */
+    rmdIncome?: number;
+    /** Per Spec 03 §6.2a: at least one spouse is age 55–59 (i.e. <60 and ≥55).
+     *  When true AND current marginal rate < target rate, pull-forward mode kicks in. */
+    anySpouseInEarlyWindow?: boolean;
+    /** Per Spec 03 §6.2a: household's available non-retirement funds (taxable
+     *  brokerage + cash). When in the early window, the conversion's tax cost
+     *  must be payable from these funds — otherwise we shrink the conversion to
+     *  what those funds can cover. Pre-59½ withdrawals from traditional accounts
+     *  to pay tax would trigger a 10% penalty. */
+    availableTaxFunds?: number;
   }
 ): RothConversionResult {
   const {
@@ -225,6 +252,9 @@ export function optimizeRothConversion(
     targetBracket,
     bothRetired,
     olderSpouseAge,
+    rmdIncome = 0,
+    anySpouseInEarlyWindow = false,
+    availableTaxFunds = Infinity,
   } = params;
 
   const noConversion: RothConversionResult = {
@@ -232,14 +262,24 @@ export function optimizeRothConversion(
     taxCost: 0,
     rationale: "Not in conversion window",
     irmaaWarning: false,
+    isPullForward: false,
+    currentMarginalRate: 0,
+    fundingConstrained: false,
   };
 
-  if (!bothRetired || olderSpouseAge >= RMD_START_AGE) return noConversion;
+  // Per Spec 03 §6.2: conversions are evaluated for every year both spouses are
+  // retired — including post-RMD years — because partial conversions remain
+  // worthwhile when bracket headroom survives the RMD draw.
+  if (!bothRetired) return noConversion;
   if (traditionalBalance <= 0) return noConversion;
 
   const brackets = inflateBrackets(TAX_BRACKETS_2025_MFJ, year, inflationRate);
   const standardDeduction = inflateValue(STANDARD_DEDUCTION_2025_MFJ, year, inflationRate);
-  const taxableOrdinary = Math.max(0, ordinaryIncomeBeforeConversion - standardDeduction);
+
+  // Headroom is calculated AFTER RMD income is stacked on top of other ordinary income.
+  // In RMD years this typically eats most/all of the headroom in the target bracket.
+  const totalOrdinaryBeforeConversion = ordinaryIncomeBeforeConversion + rmdIncome;
+  const taxableOrdinary = Math.max(0, totalOrdinaryBeforeConversion - standardDeduction);
 
   const targetRate = TARGET_BRACKET_RATE[targetBracket];
   const targetBracketData = brackets.find((b) => b.rate === targetRate);
@@ -247,23 +287,85 @@ export function optimizeRothConversion(
 
   const targetBracketTop = targetBracketData.max ?? Infinity;
   const headroom = Math.max(0, targetBracketTop - taxableOrdinary);
-  const conversionAmount = Math.min(headroom, traditionalBalance);
+  const initialConversion = Math.min(headroom, traditionalBalance);
 
-  if (conversionAmount <= 0) return noConversion;
-
+  // Pre-conversion marginal rate (used for both pull-forward detection and tax sizing).
   const marginalOrdinaryRate = marginalRate(taxableOrdinary, brackets);
+
+  if (initialConversion <= 0) {
+    // RMDs (or other income) filled the bracket — no conversion this year.
+    const reason = olderSpouseAge >= RMD_START_AGE && rmdIncome > 0
+      ? "No headroom — RMD fills bracket"
+      : "No bracket headroom remaining";
+    return {
+      ...noConversion,
+      rationale: reason,
+      currentMarginalRate: marginalOrdinaryRate,
+    };
+  }
+
+  // §6.2a: pull-forward fires when an early-window spouse exists AND current
+  // marginal rate is below the target bracket rate.
+  const isPullForward = anySpouseInEarlyWindow && marginalOrdinaryRate < targetRate;
+
+  // §6.2a funding constraint: in the pre-59½ window, the tax cost must be
+  // payable from non-retirement funds. If not, scale the conversion down so
+  // the resulting tax cost fits within availableTaxFunds. Only applies when
+  // any spouse is in the 55–59 window — once both are 59½+, the 10% penalty
+  // no longer applies and traditional withdrawals can fund the bill.
+  let conversionAmount = initialConversion;
+  let fundingConstrained = false;
+  if (anySpouseInEarlyWindow && marginalOrdinaryRate > 0) {
+    const maxAffordableConversion = availableTaxFunds / marginalOrdinaryRate;
+    if (initialConversion > maxAffordableConversion) {
+      conversionAmount = Math.max(0, maxAffordableConversion);
+      fundingConstrained = true;
+    }
+  }
+
+  if (conversionAmount <= 0) {
+    return {
+      ...noConversion,
+      rationale: "No taxable funds available to cover conversion tax (pre-59½ penalty risk)",
+      currentMarginalRate: marginalOrdinaryRate,
+      fundingConstrained: true,
+    };
+  }
+
   const taxCost = conversionAmount * marginalOrdinaryRate;
 
   const irmaaThreshold = inflateValue(IRMAA_THRESHOLD_2025_MFJ, year, inflationRate);
   const magiAfterConversion =
-    ordinaryIncomeBeforeConversion + conversionAmount + longTermCapitalGains;
+    totalOrdinaryBeforeConversion + conversionAmount + longTermCapitalGains;
   const irmaaWarning = magiAfterConversion > irmaaThreshold;
+
+  const targetPctLabel = targetBracket.replace("pct", "%");
+  const currentPctLabel = `${Math.round(marginalOrdinaryRate * 100)}%`;
+
+  // Rationale priority (most specific first):
+  //   1. Pull-forward (early window with sub-target marginal rate)
+  //   2. Partial — RMD used most of bracket (post-73 with RMDs)
+  //   3. Standard "Filled X% bracket" message
+  let rationale: string;
+  if (isPullForward) {
+    rationale = `⭐ Early window: ${currentPctLabel} < ${targetPctLabel} target`;
+    if (fundingConstrained) {
+      rationale += ` (sized to fit available taxable funds)`;
+    }
+  } else if (olderSpouseAge >= RMD_START_AGE && rmdIncome > 0) {
+    rationale = `Partial — RMD used most of bracket`;
+  } else {
+    rationale = `Filled ${targetPctLabel} bracket: $${Math.round(conversionAmount).toLocaleString()} converted`;
+  }
 
   return {
     conversionAmount: Math.round(conversionAmount),
     taxCost: Math.round(taxCost),
-    rationale: `Filled ${targetBracket.replace("pct", "%")} bracket: $${Math.round(conversionAmount).toLocaleString()} converted`,
+    rationale,
     irmaaWarning,
+    isPullForward,
+    currentMarginalRate: marginalOrdinaryRate,
+    fundingConstrained,
   };
 }
 

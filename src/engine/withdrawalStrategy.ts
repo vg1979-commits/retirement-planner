@@ -58,10 +58,13 @@ export function calculateRmd(balance: number, age: number): number {
   return balance / divisor;
 }
 
-// Account types subject to RMDs
+// Account types subject to RMDs (Spec 02 §5).
+// Roth 401k is intentionally NOT in this list — SECURE 2.0 (2024) exempted
+// designated Roth 401k accounts from owner RMDs. Roth IRA has always been exempt.
 const RMD_ACCOUNT_TYPES = new Set<AccountType>([
   "traditional_401k",
   "traditional_ira",
+  "deferred_comp",
 ]);
 
 // ─── Bracket headroom for tax-efficient traditional draws ─────────────────────

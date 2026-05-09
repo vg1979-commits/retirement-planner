@@ -83,19 +83,47 @@ This is one of the highest-value features for a high-income family with large pr
 
 ### 6.1 Problem Statement
 
-The family likely has significant traditional 401k / IRA balances. After retirement (when income drops) and before RMDs (age 73), there is a window to convert pre-tax funds to Roth at lower tax rates. The optimizer finds the optimal conversion amount each year.
+The family likely has significant traditional 401k / IRA balances. After retirement (when income drops) and before RMDs (age 73), there is a window to convert pre-tax funds to Roth at lower tax rates. The optimizer finds the optimal conversion amount each year — including an accelerated early-retirement window (ages 55–59½) when marginal rates may be even lower than the main conversion window.
 
 ### 6.2 Algorithm
 
 ```
-For each year in the conversion window (both retired AND before RMD age):
+For each year from (both retired) through (end of plan):
   1. Determine taxable income from non-conversion sources (investment income, part-time work, etc.)
-  2. Identify "bracket headroom" — how much more income fits in current bracket
-  3. Determine target: fill up to top of 22% bracket (configurable)
-  4. Convert min(bracket_headroom, traditional_balance) to Roth
-  5. Record conversion as ordinary income in TaxSnapshot
-  6. Reduce traditional account balance; increase Roth balance
+  2. If age >= 73: calculate mandatory RMD for each traditional account; add total RMD to taxable income
+  3. Calculate current marginal rate on that taxable income
+  4. Identify "bracket headroom" — how much more income fits in target bracket AFTER RMDs and other income
+  5. If headroom > 0 AND traditional_balance > 0:
+       a. If age is 55–59.5 AND current marginal rate < target bracket rate:
+            → Pull-forward mode: convert up to headroom (same as normal), but flag in rationale
+               as "Early window: marginal rate X% < target Y% — accelerating conversions"
+       b. Otherwise: convert min(headroom, traditional_balance) to Roth as normal
+  6. Record conversion as ordinary income in TaxSnapshot
+  7. Reduce traditional account balance; increase Roth balance
 ```
+
+Note: conversions continue to be evaluated after RMD age — RMDs may consume most or all of the bracket headroom, but partial conversions are still worthwhile in years where headroom remains. Do not hard-stop conversions at age 73.
+
+### 6.2a Early Retirement Pull-Forward Logic (Ages 55–59½)
+
+When one or both spouses retire before age 59½, their income often drops sharply — potentially to a marginal rate *below* the target conversion bracket. This creates an especially attractive conversion window that the optimizer must recognize and prioritize.
+
+**Trigger condition:** In any year where:
+- At least one spouse is between age 55 and 59½ (inclusive), AND
+- The household's current marginal rate (before any conversion) is **less than** the user's target bracket rate
+
+**Behavior:**
+- Convert up to the full bracket headroom, same as the standard algorithm
+- The optimizer does NOT increase the conversion amount beyond the target bracket ceiling — it simply recognizes these years as high-priority and flags them
+- `conversionRationale` for these years: `"Early window (age 55–59½): current rate X% < target Y% — high-priority conversion year"`
+- The UI summary bar should call out if any pull-forward years exist: *"Includes X high-priority early conversion years (ages 55–59½) where your marginal rate drops below the target bracket."*
+
+**Important — early withdrawal penalty distinction:**
+- The Roth *conversion* itself (moving money from traditional to Roth) is NOT subject to the 10% early withdrawal penalty, regardless of age
+- However, withdrawing money from a traditional account to *pay the tax bill* on the conversion before age 59½ WOULD trigger the 10% penalty on that tax payment withdrawal
+- The optimizer assumes the tax cost of conversions in the 55–59½ window is paid from non-retirement funds (taxable brokerage or cash), not from the traditional account itself
+- If taxable/cash balance is insufficient to cover the tax cost, the optimizer reduces the conversion amount to what can be funded without triggering the penalty
+- Display a note in the Roth Conversion Planner for affected years: *"Tax on this conversion should be paid from taxable funds to avoid early withdrawal penalty."*
 
 ### 6.3 Configurable Target Bracket
 
@@ -103,6 +131,8 @@ User can set the maximum bracket to fill via conversion:
 - Conservative: fill to top of 12% bracket
 - Moderate (default): fill to top of 22% bracket
 - Aggressive: fill to top of 24% bracket
+
+The pull-forward logic in §6.2a applies in all three modes — it activates whenever the current marginal rate is below whichever target the user has selected.
 
 ### 6.4 IRMAA Awareness (Placeholder in v1)
 
@@ -113,7 +143,24 @@ Medicare IRMAA surcharges kick in at MAGI > $212,000 (MFJ, 2025). Flag years whe
 The optimizer adds to each year's `TaxSnapshot`:
 - `rothConversionAmount` — dollars converted
 - `rothConversionTaxCost` — marginal tax on that conversion
-- `conversionRationale` — human-readable string (e.g. "Filled 22% bracket: $45,200 converted")
+- `conversionRationale` — human-readable string (e.g. "Filled 22% bracket: $45,200 converted", "Partial — RMD used most of bracket", "No headroom — RMD fills bracket")
+
+The optimizer also produces a `RothConversionSummary` for the full scenario (used by the UI summary bar):
+
+```typescript
+interface RothConversionSummary {
+  totalConverted: number;           // cumulative dollars converted across all years
+  totalTaxCostWithConversions: number;    // lifetime federal tax with strategy
+  totalTaxCostWithoutConversions: number; // lifetime federal tax if no conversions done
+  estimatedTaxSavings: number;      // difference — the headline figure shown in UI
+  conversionWindowStart: number;    // first year a conversion is recommended (calendar year)
+  conversionWindowEnd: number;      // last year a conversion is recommended
+  traditionalBalanceAtRMDAge: number; // projected traditional balance at age 73 without conversions — RMD tax bomb indicator
+  narrativeSummary: string;         // 2–3 sentence plain-English explanation generated from the above fields
+}
+```
+
+`estimatedTaxSavings` is computed by running the projection twice on the median path — once with the optimizer enabled, once with it disabled — and diffing total lifetime federal tax.
 
 ---
 
@@ -156,4 +203,13 @@ Tax module unit tests must verify:
 - LTCG stacking: 0% rate when ordinary income is low, 15% when stacked into LTCG brackets
 - NIIT: threshold detection, correct lesser-of calculation
 - Roth optimizer: correctly fills to target bracket, does not over-convert
+- Roth optimizer in RMD years: RMD income counted before calculating conversion headroom; no conversion when RMD fills the bracket
+- Roth optimizer post-73: conversions continue where bracket headroom remains after RMDs
 - Backdoor Roth: $0 tax cost when no existing IRA balance
+
+---
+
+## Changelog
+- 2026-05-09T16:19:58Z: §6.2 Roth conversion algorithm updated — RMD income now factored into bracket headroom calculation; conversions continue past age 73 where headroom exists
+- 2026-05-09T20:12:00Z: §6.5 Output expanded — added RothConversionSummary type with estimatedTaxSavings headline, conversion window, traditional balance at RMD age, and narrativeSummary for UI summary bar
+- 2026-05-09T20:56:02Z: §6.2a added — early retirement pull-forward logic for ages 55–59½; optimizer activates when current marginal rate < target bracket rate; early withdrawal penalty distinction documented; tax payment sourcing rules specified

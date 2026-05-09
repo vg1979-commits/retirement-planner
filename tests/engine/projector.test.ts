@@ -81,7 +81,8 @@ function makeBaseInput(overrides: Partial<ProjectorInput> = {}): ProjectorInput 
     expenses: {
       currentAnnualSpending: 200_000,
       retirementAnnualSpending: 180_000,
-      inflationRate: 0.025,
+      copyCurrentToRetirement: false,
+      categories: [],
     },
     investmentAssumptions: ASSUMPTIONS,
     run: makeFlatRun(numYears),
@@ -113,6 +114,48 @@ describe("projectScenario — output shape", () => {
     for (let i = 0; i < result.annualProjections.length; i++) {
       expect(result.yearlyEndBalances[i]).toBe(result.annualProjections[i].portfolioEndBalance);
     }
+  });
+});
+
+// ─── Roth conversion integration ─────────────────────────────────────────────
+
+describe("projectScenario — Roth conversion integration", () => {
+  it("optimizer ON moves money from traditional → Roth in retirement years", () => {
+    const result = projectScenario(makeBaseInput({
+      scenario: { id: "s", label: "S", color: "#000", enableRothOptimizer: true, rothConversionTargetBracket: "22pct" },
+    }));
+    // Find a post-retirement year with a non-zero conversion
+    const conv = result.annualProjections.find((p) => p.rothConversionAmount > 0);
+    expect(conv).toBeDefined();
+    expect(conv!.conversionRationale).toMatch(/bracket|RMD/i);
+    // The conversion should also surface marginal rate and tax cost.
+    expect(conv!.rothConversionTaxCost).toBeGreaterThan(0);
+  });
+
+  it("optimizer OFF produces zero conversions for every year", () => {
+    const result = projectScenario(makeBaseInput({
+      scenario: { id: "s", label: "S", color: "#000", enableRothOptimizer: false },
+    }));
+    for (const p of result.annualProjections) {
+      expect(p.rothConversionAmount).toBe(0);
+      expect(p.rothConversionTaxCost).toBe(0);
+    }
+  });
+
+  it("rothOptimizerOverride beats scenario settings (used for baseline pass)", () => {
+    // Scenario says ON, override says OFF → should be OFF.
+    const result = projectScenario(makeBaseInput({
+      scenario: { id: "s", label: "S", color: "#000", enableRothOptimizer: true },
+      rothOptimizerOverride: { enabled: false },
+    }));
+    expect(result.annualProjections.every((p) => p.rothConversionAmount === 0)).toBe(true);
+  });
+
+  it("output exposes lifetimeFederalTax and traditionalBalanceAtRMDAge", () => {
+    const result = projectScenario(makeBaseInput());
+    expect(typeof result.lifetimeFederalTax).toBe("number");
+    expect(result.lifetimeFederalTax).toBeGreaterThan(0);
+    expect(typeof result.traditionalBalanceAtRMDAge).toBe("number");
   });
 });
 
@@ -248,7 +291,8 @@ describe("projectScenario — depletion", () => {
       expenses: {
         currentAnnualSpending: 200_000,
         retirementAnnualSpending: 200_000,
-        inflationRate: 0.025,
+        copyCurrentToRetirement: false,
+        categories: [],
       },
       investmentAssumptions: ASSUMPTIONS,
       run: makeFlatRun(numYears),

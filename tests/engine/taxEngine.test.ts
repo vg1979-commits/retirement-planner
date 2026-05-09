@@ -213,9 +213,42 @@ describe("optimizeRothConversion", () => {
     expect(result.conversionAmount).toBe(0);
   });
 
-  it("does not convert when older spouse is at RMD age", () => {
-    const result = optimizeRothConversion({ ...base, olderSpouseAge: 73 });
+  it("continues to convert past RMD age when bracket headroom remains (no RMD income passed)", () => {
+    // Spec 03 §6.2: don't hard-stop at age 73. With no rmdIncome supplied, optimizer
+    // behaves like pre-RMD years and fills the target bracket.
+    const result = optimizeRothConversion({ ...base, olderSpouseAge: 75 });
+    expect(result.conversionAmount).toBeGreaterThan(0);
+  });
+
+  it("RMD income consumes bracket headroom — no conversion when RMD fills target bracket", () => {
+    // 22% bracket top ≈ $201,050. A $250k RMD already overshoots the target → $0 conversion.
+    const result = optimizeRothConversion({
+      ...base,
+      olderSpouseAge: 75,
+      ordinaryIncomeBeforeConversion: 30_000,
+      rmdIncome: 250_000,
+    });
     expect(result.conversionAmount).toBe(0);
+    expect(result.rationale).toMatch(/RMD/i);
+  });
+
+  it("RMD income partially consumes headroom — conversion sized to remaining gap", () => {
+    // Other ordinary 30k + RMD 50k = 80k, taxable ≈ 50.8k. 22% top ≈ 201,050.
+    // Headroom ≈ 150k → conversion is non-zero but less than the no-RMD case (170,250).
+    const noRmd = optimizeRothConversion({
+      ...base,
+      olderSpouseAge: 75,
+      ordinaryIncomeBeforeConversion: 30_000,
+    });
+    const withRmd = optimizeRothConversion({
+      ...base,
+      olderSpouseAge: 75,
+      ordinaryIncomeBeforeConversion: 30_000,
+      rmdIncome: 50_000,
+    });
+    expect(withRmd.conversionAmount).toBeGreaterThan(0);
+    expect(withRmd.conversionAmount).toBeLessThan(noRmd.conversionAmount);
+    expect(noRmd.conversionAmount - withRmd.conversionAmount).toBeCloseTo(50_000, -2);
   });
 
   it("capped by traditional balance", () => {
@@ -234,6 +267,97 @@ describe("optimizeRothConversion", () => {
     });
     // MAGI after conversion will exceed 212k
     expect(result.irmaaWarning).toBe(true);
+  });
+
+  // ─── Spec 03 §6.2a: Early retirement pull-forward ──────────────────────────
+
+  describe("§6.2a early-window pull-forward", () => {
+    it("flags isPullForward when a spouse is 55–59 AND marginal rate < target rate", () => {
+      // Low income (60k → taxable ~30.8k) puts marginal in the 12% bracket;
+      // target is 22%; so 12% < 22% → pull-forward fires.
+      const result = optimizeRothConversion({
+        ...base,
+        olderSpouseAge: 57,
+        anySpouseInEarlyWindow: true,
+      });
+      expect(result.isPullForward).toBe(true);
+      expect(result.currentMarginalRate).toBeLessThan(0.22);
+      expect(result.rationale).toMatch(/⭐ Early window/);
+      expect(result.rationale).toMatch(/12% < 22%/);
+    });
+
+    it("does NOT flag pull-forward when marginal rate already at target", () => {
+      // Push ordinary income high enough that pre-conversion marginal == 22%.
+      // Standard deduction inflates ~29k; need taxable in 22% bracket.
+      const result = optimizeRothConversion({
+        ...base,
+        olderSpouseAge: 57,
+        ordinaryIncomeBeforeConversion: 150_000,
+        anySpouseInEarlyWindow: true,
+      });
+      // marginal = 22% (not < 22%), so even though early-window is true, no pull-forward.
+      expect(result.isPullForward).toBe(false);
+      expect(result.rationale).not.toMatch(/Early window/);
+    });
+
+    it("does NOT flag pull-forward outside the early window even if rate is low", () => {
+      const result = optimizeRothConversion({
+        ...base,
+        olderSpouseAge: 65,
+        anySpouseInEarlyWindow: false,
+      });
+      expect(result.isPullForward).toBe(false);
+    });
+
+    it("conversion amount is the same with and without pull-forward (it just flags)", () => {
+      const without = optimizeRothConversion({ ...base, olderSpouseAge: 65, anySpouseInEarlyWindow: false });
+      const withFlag = optimizeRothConversion({ ...base, olderSpouseAge: 57, anySpouseInEarlyWindow: true });
+      // Same income, same target → same conversion size; only the flag changes.
+      expect(withFlag.conversionAmount).toBe(without.conversionAmount);
+      expect(withFlag.isPullForward).toBe(true);
+      expect(without.isPullForward).toBe(false);
+    });
+
+    it("funding constraint shrinks conversion when taxable funds can't cover the tax bill", () => {
+      // Pre-conversion taxable ~30.8k → marginal 12%. Headroom ≈ 170,250.
+      // Tax cost would be ~$20,430. Set availableTaxFunds = $5,000.
+      // Max affordable conversion = 5000 / 0.12 ≈ 41,667.
+      const result = optimizeRothConversion({
+        ...base,
+        olderSpouseAge: 57,
+        anySpouseInEarlyWindow: true,
+        availableTaxFunds: 5_000,
+      });
+      expect(result.fundingConstrained).toBe(true);
+      expect(result.conversionAmount).toBeLessThan(50_000);
+      expect(result.conversionAmount).toBeGreaterThan(0);
+      expect(result.taxCost).toBeLessThanOrEqual(5_000 + 1); // rounding tolerance
+      expect(result.rationale).toMatch(/sized to fit available taxable funds/);
+    });
+
+    it("funding constraint does NOT apply once both spouses are 60+", () => {
+      // Same low-fund setup but no early window → no shrinking.
+      const result = optimizeRothConversion({
+        ...base,
+        olderSpouseAge: 65,
+        anySpouseInEarlyWindow: false,
+        availableTaxFunds: 5_000,
+      });
+      expect(result.fundingConstrained).toBe(false);
+      expect(result.conversionAmount).toBeGreaterThan(50_000); // full headroom
+    });
+
+    it("zero taxable funds in the early window produces $0 conversion with explanatory rationale", () => {
+      const result = optimizeRothConversion({
+        ...base,
+        olderSpouseAge: 57,
+        anySpouseInEarlyWindow: true,
+        availableTaxFunds: 0,
+      });
+      expect(result.conversionAmount).toBe(0);
+      expect(result.fundingConstrained).toBe(true);
+      expect(result.rationale).toMatch(/penalty/i);
+    });
   });
 });
 

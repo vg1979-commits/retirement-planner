@@ -5,7 +5,7 @@ import SuccessGauge from "../components/shared/SuccessGauge";
 import NominalRealToggle from "../components/shared/NominalRealToggle";
 
 export default function ProjectionsView() {
-  const { results, scenarios, expenses, ui } = useAppStore();
+  const { results, scenarios, investmentAssumptions, ui } = useAppStore();
   const [displayMode, setDisplayMode] = useState<"nominal" | "real">("nominal");
 
   const activeResults = ui.activeScenarioIds
@@ -47,7 +47,7 @@ export default function ProjectionsView() {
                 projections={baseProjections}
                 scenarios={activeScenarios}
                 displayMode={displayMode}
-                inflationRate={expenses.inflationRate}
+                inflationRate={investmentAssumptions.inflationRate}
               />
             </div>
           </div>
