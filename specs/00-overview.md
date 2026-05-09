@@ -2,7 +2,7 @@
 
 ## Purpose
 
-A web-based retirement planning tool for a dual-income family with a net worth in the $3–5M range. The application models the household's path from today through retirement and beyond, helping them answer questions like:
+A web-based retirement planning tool for a dual-income family. The application models the household's path from today through retirement and beyond, helping them answer questions like:
 
 - Can we retire at 55? 58? 60?
 - What spending level is sustainable?
@@ -16,10 +16,10 @@ A web-based retirement planning tool for a dual-income family with a net worth i
 | Field | Details |
 |---|---|
 | Household | Married couple, 2 children |
-| Net worth | ~$3–5M |
-| Income | Both spouses in high-income W2 jobs |
-| Child 1 | Age 15 (rising 10th grader) |
-| Child 2 | Age 9 (rising 4th grader) |
+| Net worth | ~1M |
+| Income | Both spouses in W2 jobs |
+| Child 1 |  |
+| Child 2 |  |
 | Social Security | Not modeled in v1 |
 
 ---
@@ -51,7 +51,7 @@ A web-based retirement planning tool for a dual-income family with a net worth i
 - Account-by-account input: 401k, Roth IRA, brokerage, HSA, cash
 - Income modeling: W2 salaries, RSU/bonus estimates, investment income
 - Expense modeling: current spending baseline + retirement spending target
-- Monte Carlo simulation (1,000+ runs, configurable return/volatility assumptions)
+- Monte Carlo simulation (1,500+ runs, configurable return/volatility assumptions)
 - Tax modeling: federal income tax, LTCG, Roth conversion optimizer
 - Output: portfolio balance chart, annual cash flow view, probability of success, scenario comparison
 - Responsive web UI built in React + TypeScript
@@ -64,3 +64,6 @@ A web-based retirement planning tool for a dual-income family with a net worth i
 - State tax modeling (v2, placeholder field only)
 - Account aggregation / data import (v2)
 - Multi-user / sharing (v2)
+
+## Changelog
+- 2026-05-08: Edited Purpose and Family Profile sections; Updated Monte Carlo to 1500 runs instead of 1000

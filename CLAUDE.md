@@ -15,10 +15,10 @@ A web-based, browser-only retirement planning tool for a high-income dual-W2 fam
 | Field | Details |
 |---|---|
 | Household | Married couple (husband + wife), 2 children |
-| Net worth | ~$3–5M |
-| Income | Both spouses high-income W2 |
-| Child 1 | Age 15 (rising 10th grader, born ~2010) |
-| Child 2 | Age 9 (rising 4th grader, born ~2016) |
+| Net worth | ~$0–1M |
+| Income | Both spouses W2 |
+| Child 1 |  |
+| Child 2 |  |
 | Planning horizon | Model to age 95 (older spouse) |
 
 ---
@@ -158,3 +158,10 @@ Do not implement these — stub with placeholder UI if needed:
 - Tax brackets must be inflation-adjusted each projection year — hardcoded 2025 values in `constants.ts`, adjusted annually in the projector.
 - When in doubt about financial modeling details, refer to the relevant spec file rather than guessing.
 - Demo data should reflect the family profile above (high income, multiple account types, two spouses near peak earning years).
+
+
+## Spec Change Protocol
+When a spec file changes, do NOT auto-refactor. Instead:
+1. Read the updated spec section
+2. List all affected files and what needs to change
+3. Wait for confirmation before touching any code

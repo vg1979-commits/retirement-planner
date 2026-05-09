@@ -42,7 +42,7 @@ Returns are log-normal (apply via `exp(r) - 1` to avoid negative compounding).
 
 ### 2.2 Simulation Count
 
-Default: **1,000 runs** (configurable 500–5,000). Each run uses independent random seeds.
+Default: **1,500 runs** (configurable 500–5,000). Each run uses independent random seeds.
 
 ### 2.3 Sequence of Returns Risk
 
@@ -159,7 +159,7 @@ function extractPercentiles(runs: number[][]): PercentileBands {
 
 ## 8. Performance Requirements
 
-- 1,000 runs × 40 years × per-year computation must complete in **< 3 seconds** on a modern laptop
+- 1,500 runs × 40 years × per-year computation must complete in **< 3 seconds** on a modern laptop
 - Run in a **Web Worker** to avoid blocking the UI thread
 - Progress callback: emit `{progress: 0–1}` every 100 runs so UI can show a progress bar
 - Results are memoized by a hash of inputs; re-run only when inputs change
@@ -175,3 +175,6 @@ The engine must have unit tests for:
 - Withdrawal sequencing: correct account draw-down order
 - RMD calculation: matches IRS table for ages 73, 80, 90
 - Success rate: a 4% SWR on a 60/40 portfolio should produce ~85–90% success over 30 years (historical validation)
+
+## Changelog
+- 2026-05-08: Updated run count to 1500

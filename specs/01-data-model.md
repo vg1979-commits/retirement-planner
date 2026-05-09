@@ -9,7 +9,7 @@ All application state is typed in TypeScript. This file defines the canonical sh
 ```typescript
 interface HouseholdProfile {
   id: string;
-  name: string; // e.g. "Goyal Family Plan"
+  name: string; // e.g. "XXX Family Plan"
   createdAt: string; // ISO date
   updatedAt: string;
 
@@ -57,7 +57,7 @@ interface Account {
   id: string;
   owner: "spouse1" | "spouse2" | "joint";
   type: AccountType;
-  label: string; // e.g. "Vineet's 401k at Fidelity"
+  label: string; // e.g. "401k at Fidelity"
   currentBalance: number;
   annualContribution: number; // current year contribution (pre-tax where applicable)
   employerMatch?: number; // annual dollar amount of employer match
@@ -272,3 +272,6 @@ interface UIState {
   lastRunAt: string | null;
 }
 ```
+
+## Changelog
+- 2026-05-08: Anonymized Household Profile and accounts section
