@@ -96,6 +96,10 @@ interface IncomeBreakdown {
   netInvestmentIncome: number; // dividends + interest + LTCG (for NIIT)
   spouse1Working: boolean;
   spouse2Working: boolean;
+  /** Earned income from active streams, tracked per owner.
+   *  Used to gate tax-advantaged contributions (can't contribute to a
+   *  401k / IRA / HSA without earned income). */
+  earnedByOwner: { spouse1: number; spouse2: number };
 }
 
 function calculateIncome(
@@ -119,6 +123,8 @@ function calculateIncome(
   );
 
   let ordinaryIncome = 0;
+  let s1Earned = 0;
+  let s2Earned = 0;
   for (const stream of incomeStreams) {
     if (year < stream.startYear || year > stream.endYear) continue;
 
@@ -134,6 +140,9 @@ function calculateIncome(
 
     if (stream.taxTreatment === "ordinary_income") {
       ordinaryIncome += grown;
+      // Track earned income per owner so contributions can be gated correctly
+      if (owner === "spouse1") s1Earned += grown;
+      else if (owner === "spouse2") s2Earned += grown;
     } else if (stream.taxTreatment === "ltcg") {
       // unusual for income streams; treat as LTCG
     } else {
@@ -161,10 +170,22 @@ function calculateIncome(
     netInvestmentIncome,
     spouse1Working: s1Working,
     spouse2Working: s2Working,
+    earnedByOwner: { spouse1: s1Earned, spouse2: s2Earned },
   };
 }
 
 // ─── Contributions ────────────────────────────────────────────────────────────
+
+// Account types that require earned income to accept contributions.
+// You cannot fund a 401k, IRA, or HSA without employment / earned income.
+// Brokerage and cash accounts have no such restriction.
+const REQUIRES_EARNED_INCOME = new Set<AccountType>([
+  "traditional_401k",
+  "roth_401k",
+  "traditional_ira",
+  "roth_ira",
+  "hsa",
+]);
 
 interface ContributionResult {
   totalContributions: number;
@@ -176,7 +197,8 @@ function calculateContributions(
   input: ProjectorInput,
   year: number,
   s1Working: boolean,
-  s2Working: boolean
+  s2Working: boolean,
+  earnedByOwner: { spouse1: number; spouse2: number }
 ): ContributionResult {
   const { household, accounts } = input;
   const perAccount: { accountId: string; amount: number }[] = [];
@@ -184,12 +206,24 @@ function calculateContributions(
   let preTax = 0;
 
   for (const acct of accounts) {
+    // Gate on retirement-age status first
     const ownerWorking =
       acct.owner === "spouse1" ? s1Working :
       acct.owner === "spouse2" ? s2Working :
       s1Working || s2Working;
 
     if (!ownerWorking) continue;
+
+    // Tax-advantaged retirement accounts additionally require earned income.
+    // Without an active paycheck you cannot contribute to a 401k / IRA / HSA.
+    if (REQUIRES_EARNED_INCOME.has(acct.type)) {
+      const ownerEarned =
+        acct.owner === "spouse1" ? earnedByOwner.spouse1 :
+        acct.owner === "spouse2" ? earnedByOwner.spouse2 :
+        // joint → either spouse's income qualifies (e.g. spousal IRA)
+        earnedByOwner.spouse1 + earnedByOwner.spouse2;
+      if (ownerEarned <= 0) continue;
+    }
 
     const ownerPerson = acct.owner === "spouse2" ? household.spouse2 : household.spouse1;
     const ownerAge = age(ownerPerson, year);
@@ -345,7 +379,7 @@ export function projectScenario(input: ProjectorInput): ProjectorOutput {
 
     // 2. Contributions
     const contribs = calculateContributions(
-      input, year, income.spouse1Working, income.spouse2Working
+      input, year, income.spouse1Working, income.spouse2Working, income.earnedByOwner
     );
     applyContributions(balances, contribs.perAccount, input.accounts);
 
