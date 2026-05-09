@@ -19,7 +19,8 @@
       "mcp__c20fb8e3-5cf5-4a82-b341-1aa73d4e2adc__deploy_to_vercel",
       "Bash(vercel --version)",
       "Bash(git checkout *)",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "Bash(npx vitest *)"
     ]
   }
 }
