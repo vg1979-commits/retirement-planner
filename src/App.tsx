@@ -5,6 +5,7 @@ import ProjectionsView from "./views/ProjectionsView";
 import CashFlowView from "./views/CashFlowView";
 import TaxView from "./views/TaxView";
 import ScenariosView from "./views/ScenariosView";
+import ReleaseNotesView from "./views/ReleaseNotesView";
 
 export default function App() {
   const activeView = useAppStore((s) => s.ui.activeView);
@@ -15,6 +16,7 @@ export default function App() {
     cashflow: <CashFlowView />,
     taxes: <TaxView />,
     scenarios: <ScenariosView />,
+    "release-notes": <ReleaseNotesView />,
   }[activeView];
 
   return <AppShell>{view}</AppShell>;

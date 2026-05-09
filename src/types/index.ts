@@ -44,7 +44,8 @@ export type AccountType =
 
 export interface Account {
   id: string;
-  owner: "spouse1" | "spouse2" | "joint";
+  // "spouse1" | "spouse2" | "joint" | child's name; dynamically built from People & Timeline
+  owner: string;
   type: AccountType;
   label: string; // e.g. "Vineet's 401k at Fidelity"
   currentBalance: number;
@@ -72,18 +73,20 @@ export interface IncomeStream {
 // ─── Expenses ─────────────────────────────────────────────────────────────────
 
 export interface ExpenseProfile {
-  currentAnnualSpending: number; // total household, today's dollars
-  retirementAnnualSpending: number; // target in today's dollars
+  // Derived: sum of categories[].currentAmount / retirementAmount — read-only in UI
+  currentAnnualSpending: number;
+  retirementAnnualSpending: number;
   inflationRate: number; // default 0.025
 
-  categories?: ExpenseCategory[];
+  categories: ExpenseCategory[]; // source of truth; drives both totals
 }
 
 export interface ExpenseCategory {
-  label: string; // e.g. "Housing", "Travel", "Healthcare"
-  annualAmount: number;
-  activeInRetirement: boolean;
-  retirementAmount?: number; // if different from working years
+  id: string;
+  label: string;         // e.g. "Housing", "Travel", "Healthcare"
+  currentAmount: number; // today's dollars; user-entered
+  retirementAmount: number; // today's dollars; user-entered independently
+  isCustom: boolean;     // false for default categories, true for user-added rows
 }
 
 // ─── Investment Assumptions ───────────────────────────────────────────────────
@@ -220,7 +223,7 @@ export interface AppState {
 }
 
 export interface UIState {
-  activeView: "inputs" | "projections" | "cashflow" | "taxes" | "scenarios";
+  activeView: "inputs" | "projections" | "cashflow" | "taxes" | "scenarios" | "release-notes";
   activeScenarioIds: string[]; // which scenarios are shown on charts
   isSimulating: boolean;
   lastRunAt: string | null;

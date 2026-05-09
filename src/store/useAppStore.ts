@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type {
   Account,
   AppState,
+  ExpenseCategory,
   ExpenseProfile,
   HouseholdProfile,
   IncomeStream,
@@ -12,13 +13,13 @@ import type {
 } from "../types";
 import { runSimulationsAsync } from "../engine/runner";
 import {
-  DEMO_HOUSEHOLD,
-  DEMO_ACCOUNTS,
-  DEMO_INCOME_STREAMS,
-  DEMO_EXPENSES,
-  DEMO_INVESTMENT_ASSUMPTIONS,
-  DEMO_SCENARIOS,
-} from "./demoData";
+  INITIAL_HOUSEHOLD,
+  INITIAL_ACCOUNTS,
+  INITIAL_INCOME_STREAMS,
+  INITIAL_EXPENSES,
+  INITIAL_INVESTMENT_ASSUMPTIONS,
+  INITIAL_SCENARIOS,
+} from "./initialState";
 
 // ─── Action surface ───────────────────────────────────────────────────────────
 
@@ -50,8 +51,8 @@ interface AppActions {
   runSimulations: (numSimulations?: number) => Promise<void>;
   cancelSimulation: () => void;
 
-  // Reset to demo
-  resetToDemo: () => void;
+  // Reset
+  resetToEmpty: () => void;
 }
 
 export type AppStore = AppState & AppActions & {
@@ -59,12 +60,21 @@ export type AppStore = AppState & AppActions & {
   simulationProgress: number;
 };
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function deriveTotals(cats: ExpenseCategory[]): Pick<ExpenseProfile, "currentAnnualSpending" | "retirementAnnualSpending"> {
+  return {
+    currentAnnualSpending: cats.reduce((s, c) => s + c.currentAmount, 0),
+    retirementAnnualSpending: cats.reduce((s, c) => s + c.retirementAmount, 0),
+  };
+}
+
 // ─── Initial state ────────────────────────────────────────────────────────────
 
 function defaultUIState(): UIState {
   return {
     activeView: "inputs",
-    activeScenarioIds: DEMO_SCENARIOS.map((s) => s.id),
+    activeScenarioIds: INITIAL_SCENARIOS.map((s) => s.id),
     isSimulating: false,
     lastRunAt: null,
   };
@@ -72,12 +82,12 @@ function defaultUIState(): UIState {
 
 function initialState(): Omit<AppStore, keyof AppActions> {
   return {
-    household: DEMO_HOUSEHOLD,
-    accounts: DEMO_ACCOUNTS,
-    incomeStreams: DEMO_INCOME_STREAMS,
-    expenses: DEMO_EXPENSES,
-    investmentAssumptions: DEMO_INVESTMENT_ASSUMPTIONS,
-    scenarios: DEMO_SCENARIOS,
+    household: INITIAL_HOUSEHOLD,
+    accounts: INITIAL_ACCOUNTS,
+    incomeStreams: INITIAL_INCOME_STREAMS,
+    expenses: INITIAL_EXPENSES,
+    investmentAssumptions: INITIAL_INVESTMENT_ASSUMPTIONS,
+    scenarios: INITIAL_SCENARIOS,
     results: {},
     ui: defaultUIState(),
     simulationProgress: 0,
@@ -122,8 +132,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set((s) => ({ incomeStreams: s.incomeStreams.filter((i) => i.id !== id) })),
 
   // ── Expenses & assumptions ──
+  // When categories change, recompute the derived totals automatically.
   updateExpenses: (patch) =>
-    set((s) => ({ expenses: { ...s.expenses, ...patch } })),
+    set((s) => {
+      const next = { ...s.expenses, ...patch };
+      if (patch.categories !== undefined) {
+        return { expenses: { ...next, ...deriveTotals(next.categories) } };
+      }
+      return { expenses: next };
+    }),
 
   updateAssumptions: (patch) =>
     set((s) => ({ investmentAssumptions: { ...s.investmentAssumptions, ...patch } })),
@@ -217,5 +234,5 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   // ── Reset ──
-  resetToDemo: () => set(initialState()),
+  resetToEmpty: () => set(initialState()),
 }));

@@ -55,7 +55,9 @@ type AccountType =
 
 interface Account {
   id: string;
-  owner: "spouse1" | "spouse2" | "joint";
+  // "spouse1" | "spouse2" | "joint" | child's name (string from HouseholdProfile.children[].name)
+  // UI dropdown is dynamically built from names entered in the People & Timeline tab
+  owner: string;
   type: AccountType;
   label: string; // e.g. "Vineet's 401k at Fidelity"
   currentBalance: number;
@@ -74,6 +76,8 @@ type IncomeType = "w2_salary" | "rsu" | "bonus" | "rental" | "other";
 
 interface IncomeStream {
   id: string;
+  // "spouse1" | "spouse2" — stored as internal key, displayed as the name entered in HouseholdProfile
+  // Children cannot own income streams
   owner: "spouse1" | "spouse2";
   type: IncomeType;
   label: string;
@@ -91,19 +95,20 @@ interface IncomeStream {
 
 ```typescript
 interface ExpenseProfile {
-  currentAnnualSpending: number; // total household, today's dollars
-  retirementAnnualSpending: number; // target in today's dollars
-  inflationRate: number; // default 0.025 (2.5%)
+  // Both totals are derived (read-only in UI) — sum of their respective category amounts
+  currentAnnualSpending: number;    // = sum of categories[].currentAmount
+  retirementAnnualSpending: number; // = sum of categories[].retirementAmount
+  inflationRate: number;            // default 0.025 (2.5%)
 
-  // Optional category breakdown (used for cash flow detail view)
-  categories?: ExpenseCategory[];
+  categories: ExpenseCategory[]; // always present; drives both totals
 }
 
 interface ExpenseCategory {
-  label: string; // e.g. "Housing", "Travel", "Healthcare"
-  annualAmount: number;
-  activeInRetirement: boolean;
-  retirementAmount?: number; // if different from working years
+  id: string;
+  label: string;         // e.g. "Housing", "Travel", "Healthcare"
+  currentAmount: number; // today's dollars; user-entered
+  retirementAmount: number; // today's dollars; user-entered independently
+  isCustom: boolean;     // false for default categories, true for user-added rows
 }
 ```
 
@@ -266,9 +271,34 @@ interface AppState {
 }
 
 interface UIState {
-  activeView: "inputs" | "projections" | "cashflow" | "taxes" | "scenarios";
+  activeView: "inputs" | "projections" | "cashflow" | "taxes" | "scenarios" | "release-notes";
   activeScenarioIds: string[]; // which scenarios are shown on charts
   isSimulating: boolean;
   lastRunAt: string | null;
 }
 ```
+
+---
+
+## 9. Initial State
+
+The app starts with a completely empty state — no pre-filled demo data. All fields begin blank or at their minimum valid value. The Zustand store initializes with:
+
+- `household`: empty names, birth years and salaries set to 0
+- `accounts`: empty array
+- `incomeStreams`: empty array
+- `expenses`: all amounts 0, inflationRate defaulting to 0.025
+- `investmentAssumptions`: default return/volatility values only (no allocation pre-set)
+- `scenarios`: one empty baseline scenario ("Base Case") with no overrides
+- `results`: empty record
+
+The user must fill in all inputs before running a simulation. Empty-state UI (see Spec 04 §6) guides them through each section.
+
+---
+
+## Changelog
+- 2026-05-09: Added §9 Initial State — app starts empty, no pre-filled demo data
+- 2026-05-09: Account.owner changed from union literal to string — dynamically driven by names entered in People & Timeline
+- 2026-05-09: IncomeStream.owner stays "spouse1" | "spouse2" internally but UI displays spouse names from Tab 1; children excluded from income ownership
+- 2026-05-09: ExpenseProfile.currentAnnualSpending and retirementAnnualSpending are now derived fields; ExpenseCategory is now the source of truth with separate currentAmount and retirementAmount per category
+- 2026-05-09: UIState.activeView updated to include "release-notes"

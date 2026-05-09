@@ -31,9 +31,15 @@
 │  • Taxes │                                              │
 │  • Scen- │                                              │
 │    arios │                                              │
+│  ──────  │                                              │
+│  • Relea-│                                              │
+│    se    │                                              │
+│    Notes │                                              │
 │          │                                              │
 └──────────┴──────────────────────────────────────────────┘
 ```
+
+- Release Notes is visually separated from the main planning views by a divider in the sidebar — it is informational, not part of the planning workflow
 
 - Sidebar is collapsible on smaller screens
 - Header has a prominent **"Run Simulation"** button with spinner during calculation
@@ -50,25 +56,38 @@ Organized as a tabbed form with five sections:
 **Tab 1: People & Timeline**
 - Spouse 1 name, birth year, current salary, target retirement age
 - Spouse 2 name, birth year, current salary, target retirement age
-- Children (read-only display, ages auto-calculated)
+- Children section: dynamic list; each row has name (text input) and birth year (number input); age is auto-calculated and displayed read-only
+- "+ Add Child" button appends a new row; each row has a remove (×) button
 - Planning end age (default: 95)
 
 **Tab 2: Accounts**
 - Table of accounts with columns: Label | Owner | Type | Balance | Annual Contribution | Employer Match
 - "+ Add Account" button opens a slide-over form
+- Owner dropdown is dynamically populated from names entered in Tab 1: Spouse 1 name, Spouse 2 name, children's names, plus a "Joint" option
+- If a name has not been entered yet in Tab 1, the dropdown shows placeholder labels ("Spouse 1", "Spouse 2", "Child 1", etc.)
 - Delete and edit buttons per row
 - Running total shown at bottom: "Total investable assets: $X"
 
 **Tab 3: Income**
 - Table of income streams with columns: Label | Owner | Type | Annual Amount | Start Year | End Year | Growth Rate
-- W2 salaries auto-populated from People tab (editable)
+- Owner dropdown is dynamically populated from Spouse 1 and Spouse 2 names entered in Tab 1; falls back to "Spouse 1" / "Spouse 2" if names not yet entered
+- Children are not valid owners for income streams (income is spouse-only)
 - "+ Add Income Stream" for RSUs, bonuses, rental income
 
 **Tab 4: Expenses**
-- Current annual spending (single input with optional category breakdown)
-- Retirement annual spending target (today's dollars)
-- Inflation rate (default 2.5%, editable)
-- Optional: category breakdown table (Housing, Healthcare, Travel, Food, etc.)
+- Inflation rate (default 2.5%, editable) — shown at the top
+
+**Current Annual Spending**
+- Category breakdown table with columns: Category | Current Annual Amount
+- Default categories (all start at $0, user fills in): Housing, Food & Groceries, Transportation, Healthcare, Childcare & Education, Travel & Vacation, Dining & Entertainment, Personal & Shopping, Utilities & Subscriptions, Other
+- "+ Add Category" button allows adding custom rows; each row has a remove (×) button
+- **Current Annual Spending Total** — read-only, auto-calculated as sum of all Current Annual Amount values; displayed prominently below the table
+
+**Retirement Annual Spending**
+- Same category list as above, with columns: Category | Retirement Annual Amount
+- Retirement amounts are independent of current amounts — user fills each in separately
+- Categories added in the Current section also appear here automatically
+- **Retirement Annual Spending Total** — read-only, auto-calculated as sum of all Retirement Annual Amount values; displayed prominently below the table
 
 **Tab 5: Assumptions**
 - Pre-retirement allocation: equity/bond/cash sliders (must sum to 100%)
@@ -152,6 +171,42 @@ Two sub-tabs:
 
 ---
 
+### 3.6 Release Notes View
+
+Fetched live from the GitHub Releases API at runtime. Shows users what has changed with each published release.
+
+**Layout**
+- Full-width single-column list of release entries, newest first
+- Each entry is a card containing:
+  - Version number (e.g. "v1.2.0") — displayed as a badge
+  - Release date (formatted as "May 9, 2026")
+  - Release body text rendered as markdown (the GitHub release description)
+  - Any images embedded in the release body are displayed inline
+- A subtle "Latest" badge on the most recent release
+
+**Data fetching**
+- Endpoint: `GET https://api.github.com/repos/{owner}/{repo}/releases`
+- `owner` and `repo` are read from Vite environment variables:
+  - `VITE_GITHUB_OWNER` — the GitHub username or org (e.g. `"vineetgoyal1979"`)
+  - `VITE_GITHUB_REPO` — the repository name (e.g. `"retirement-planner"`)
+- Both variables are defined in `.env.local` (gitignored) and documented in `.env.example` (committed)
+- Accessed in code as `import.meta.env.VITE_GITHUB_OWNER` and `import.meta.env.VITE_GITHUB_REPO`
+- Fetch on page mount; cache result in component state for the session (no re-fetch on re-visit)
+- Unauthenticated request (public repo assumed); rate limit: 60 req/hour — sufficient for this use case
+- Response fields used: `tag_name` (version), `published_at` (date), `body` (markdown content), any image URLs embedded in `body`
+- If either env variable is missing or empty, show the error state with a generic message rather than making a malformed API call
+
+**Loading state**
+- Skeleton cards shown while fetching (3 placeholder cards)
+
+**Error state**
+- If fetch fails (network error or rate limit): display a friendly message — "Couldn't load release notes. Check back later or view them on GitHub." with a direct link to the GitHub releases page
+
+**Empty state**
+- If no releases exist yet: "No releases published yet."
+
+---
+
 ## 4. Common Components
 
 ```
@@ -172,6 +227,9 @@ components/
   scenarios/
     ScenarioCard.tsx
     ScenarioEditor.tsx
+  release-notes/
+    ReleaseNotesList.tsx  (fetches from GitHub, renders cards)
+    ReleaseNoteCard.tsx   (single release entry)
   shared/
     CurrencyInput.tsx     (formatted number input)
     PercentInput.tsx
@@ -213,3 +271,12 @@ components/
 - Chart tooltips keyboard-accessible
 - Color is never the only conveyor of information (icons + text accompany all color coding)
 - WCAG 2.1 AA contrast ratios on all text
+
+## Changelog
+- 2026-05-09: Updated Inputs View section
+- 2026-05-09: Children section in Tab 1 is now a dynamic add/remove list (name + birth year inputs)
+- 2026-05-09: Account Owner dropdown in Tab 2 now dynamically populated from names entered in Tab 1
+- 2026-05-09: Income Owner dropdown in Tab 3 now dynamically populated from spouse names in Tab 1; children excluded
+- 2026-05-09: Tab 4 Expenses redesigned — category breakdowns drive Current and Retirement totals; both totals are read-only
+- 2026-05-09: Added Release Notes view (§3.6) — fetched from GitHub Releases API, shown in sidebar below a divider
+- 2026-05-09: GitHub repo configured via VITE_GITHUB_OWNER and VITE_GITHUB_REPO env variables; documented in .env.example

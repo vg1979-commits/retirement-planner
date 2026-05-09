@@ -157,4 +157,11 @@ Do not implement these — stub with placeholder UI if needed:
 - The Monte Carlo engine must run in a Web Worker (`engine/worker.ts`) — never block the main thread.
 - Tax brackets must be inflation-adjusted each projection year — hardcoded 2025 values in `constants.ts`, adjusted annually in the projector.
 - When in doubt about financial modeling details, refer to the relevant spec file rather than guessing.
-- Demo data should reflect the family profile above (high income, multiple account types, two spouses near peak earning years).
+- The app starts with a completely empty state. Do not pre-populate any accounts, income streams, balances, or salaries. The family profile above is context for understanding the user, not seed data.
+- Environment variables are managed via `.env.local` (gitignored, not committed). A `.env.example` file documents all required variables. Always read `.env.example` before implementing any feature that uses `import.meta.env`. Never hardcode values that belong in env variables.
+
+---
+
+## Changelog
+- 2026-05-09: Clarified that app starts with empty state — family profile is context only, not demo data
+- 2026-05-09: Added env variable guidance; .env.example created for VITE_GITHUB_OWNER and VITE_GITHUB_REPO

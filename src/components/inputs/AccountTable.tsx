@@ -19,8 +19,15 @@ const TYPE_LABELS: Record<AccountType, string> = {
 
 const fmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
+function displayOwner(owner: string, household: ReturnType<typeof useAppStore.getState>["household"]) {
+  if (owner === "joint") return "Joint";
+  if (owner === "spouse1") return household.spouse1.name || "Spouse 1";
+  if (owner === "spouse2") return household.spouse2.name || "Spouse 2";
+  return owner; // child name or custom value stored as-is
+}
+
 export default function AccountTable() {
-  const { accounts, removeAccount } = useAppStore();
+  const { accounts, removeAccount, household } = useAppStore();
   const [slideOpen, setSlideOpen] = useState(false);
   const [editing, setEditing] = useState<Account | undefined>(undefined);
 
@@ -63,7 +70,7 @@ export default function AccountTable() {
               {accounts.map((a) => (
                 <tr key={a.id} className="hover:bg-slate-50">
                   <td className="px-3 py-2 font-medium text-slate-800">{a.label}</td>
-                  <td className="px-3 py-2 text-slate-500 capitalize">{a.owner.replace("spouse", "Spouse ")}</td>
+                  <td className="px-3 py-2 text-slate-500">{displayOwner(a.owner, household)}</td>
                   <td className="px-3 py-2 text-slate-500">{TYPE_LABELS[a.type]}</td>
                   <td className="px-3 py-2 text-right font-mono text-slate-800">{fmt.format(a.currentBalance)}</td>
                   <td className="px-3 py-2 text-right font-mono text-slate-600">{fmt.format(a.annualContribution)}</td>

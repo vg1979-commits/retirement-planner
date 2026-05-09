@@ -56,16 +56,16 @@ export const DEMO_INCOME_STREAMS: IncomeStream[] = [
 
 export const DEMO_EXPENSES: ExpenseProfile = {
   currentAnnualSpending: 240_000,
-  retirementAnnualSpending: 180_000,
+  retirementAnnualSpending: 178_000,
   inflationRate: 0.025,
   categories: [
-    { label: "Housing",     annualAmount: 72_000, activeInRetirement: true,  retirementAmount: 60_000 },
-    { label: "Childcare",   annualAmount: 24_000, activeInRetirement: false },
-    { label: "Food",        annualAmount: 30_000, activeInRetirement: true },
-    { label: "Travel",      annualAmount: 30_000, activeInRetirement: true,  retirementAmount: 40_000 },
-    { label: "Healthcare",  annualAmount: 18_000, activeInRetirement: true,  retirementAmount: 24_000 },
-    { label: "Transport",   annualAmount: 18_000, activeInRetirement: true,  retirementAmount: 12_000 },
-    { label: "Discretionary", annualAmount: 48_000, activeInRetirement: true, retirementAmount: 24_000 },
+    { id: "cat-housing",    label: "Housing",                  currentAmount: 72_000, retirementAmount: 60_000, isCustom: false },
+    { id: "cat-childcare",  label: "Childcare & Education",    currentAmount: 24_000, retirementAmount: 0,      isCustom: false },
+    { id: "cat-food",       label: "Food & Groceries",         currentAmount: 30_000, retirementAmount: 30_000, isCustom: false },
+    { id: "cat-travel",     label: "Travel & Vacation",        currentAmount: 30_000, retirementAmount: 40_000, isCustom: false },
+    { id: "cat-healthcare", label: "Healthcare",               currentAmount: 18_000, retirementAmount: 24_000, isCustom: false },
+    { id: "cat-transport",  label: "Transportation",           currentAmount: 18_000, retirementAmount: 12_000, isCustom: false },
+    { id: "cat-personal",   label: "Personal & Shopping",      currentAmount: 48_000, retirementAmount: 12_000, isCustom: false },
   ],
 };
 

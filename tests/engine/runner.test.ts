@@ -33,7 +33,7 @@ function makeState(): AppState {
     incomeStreams: [
       { id: "s1", owner: "spouse1", type: "w2_salary", label: "S1", annualAmount: 400_000, startYear: 2026, endYear: 2050, growthRate: 0.03, taxTreatment: "ordinary_income" },
     ],
-    expenses: { currentAnnualSpending: 200_000, retirementAnnualSpending: 180_000, inflationRate: 0.025 },
+    expenses: { currentAnnualSpending: 200_000, retirementAnnualSpending: 180_000, inflationRate: 0.025, categories: [] },
     investmentAssumptions: ASSUMPTIONS,
     scenarios: [],
     results: {},
